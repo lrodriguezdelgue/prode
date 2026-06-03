@@ -444,7 +444,7 @@ function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
                     <div style={{ display:"flex", gap:6 }}>
                       {[["L",`Gana ${m.home}`],["E","Empate"],["V",`Gana ${m.away}`]].map(([code,lab])=>(
                         <button key={code} disabled={gruposLocked}
-                          onClick={()=>{ savePick(p=>{p.grupos=p.grupos||{}; p.grupos[m.id]=code;}); flash("Guardado ✓"); }}
+                          onClick={async()=>{ await savePick(p=>{p.grupos=p.grupos||{}; p.grupos[m.id]=code;}); }}
                           className="pickbtn"
                           style={{ flex:1, padding:"9px 4px", borderRadius:10, fontSize:12, fontWeight:800, cursor:gruposLocked?"not-allowed":"pointer",
                             border: val===code?`2px solid ${C.celesteDeep}`:`2px solid ${C.line}`,
@@ -466,7 +466,7 @@ function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
           <LockBanner locked={gruposLocked} lockISO={config.locks.grupos} openText="Elegí antes de que arranque · cierra"/>
           <div style={{ fontSize:14, color:C.mute, margin:"6px 0 10px" }}>Tu campeón vale <b style={{color:C.solDeep}}>{PTS.champ} puntos</b>. Se bloquea junto con la fase de grupos.</div>
           <select disabled={gruposLocked} value={myPicks?.champion||""}
-            onChange={e=>{ savePick(p=>{p.champion=e.target.value;}); flash("Campeón guardado ✓"); }}
+            onChange={async(e)=>{ const val=e.target.value; if(!val) return; await savePick(p=>{p.champion=val;}); }}
             style={{ width:"100%", padding:"12px", borderRadius:10, border:`2px solid ${C.line}`, fontSize:16, fontWeight:700 }}>
             <option value="">— Elegí tu campeón —</option>
             {ALL_TEAMS.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(t=>(
@@ -513,7 +513,7 @@ function KoPicks({ config, myPicks, savePick, flash }){
               <div style={{ display:"flex", gap:6 }}>
                 {[mu.teamA,mu.teamB].map(tm=>(
                   <button key={tm} disabled={locked}
-                    onClick={()=>{ savePick(p=>{p.ko=p.ko||{}; p.ko[ph]=p.ko[ph]||{}; p.ko[ph][mu.id]=tm;}); flash("Guardado ✓"); }}
+                    onClick={async()=>{ await savePick(p=>{p.ko=p.ko||{}; p.ko[ph]=p.ko[ph]||{}; p.ko[ph][mu.id]=tm;}); }}
                     className="pickbtn"
                     style={{ flex:1, padding:"11px 6px", borderRadius:10, fontSize:13, fontWeight:800, cursor:locked?"not-allowed":"pointer",
                       border: val===tm?`2px solid ${C.celesteDeep}`:`2px solid ${C.line}`,
