@@ -1,0 +1,24 @@
+name: Sync World Cup Results
+
+on:
+  schedule:
+    # Cada hora en punto, todos los días del torneo (11 jun - 19 jul)
+    - cron: '0 * * * *'
+  # También permite correrlo manualmente desde GitHub Actions
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call sync endpoint
+        run: |
+          STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -H "x-sync-secret: ${{ secrets.SYNC_SECRET }}" \
+            "${{ secrets.SYNC_URL }}")
+          echo "HTTP Status: $STATUS"
+          cat /tmp/response.json
+          if [ "$STATUS" != "200" ]; then
+            echo "Sync failed with status $STATUS"
+            exit 1
+          fi
