@@ -765,7 +765,7 @@ function AllPicksTab({ users, allPicks, results, config, me }){
               <div className="disp" style={{ fontSize:18, color:C.celesteDeep, marginBottom:4 }}>Grupo {g.id}</div>
               <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12, background:"#fff", borderRadius:10, overflow:"hidden" }}>
                 <thead><tr style={{ background:C.paper }}>
-                  <th style={cellH}>Partido</th><th style={cellH}>✔</th>{ids.map(uid=><th key={uid} style={cellH}>{(users[uid].name||uid).slice(0,6)}{uid===me?"*":""}</th>)}
+                  <th style={cellHSticky}>Partido</th><th style={cellH}>✔</th>{ids.map(uid=><th key={uid} style={cellH}>{(users[uid].name||uid).slice(0,6)}{uid===me?"*":""}</th>)}
                 </tr></thead>
                 <tbody>
                   {GROUP_MATCHES.filter(m=>m.group===g.id).map(m=>{
@@ -780,7 +780,7 @@ function AllPicksTab({ users, allPicks, results, config, me }){
                     }
                     return (
                       <tr key={m.id}>
-                        <td style={cell}>{m.homeFlag}{m.awayFlag} {m.home.slice(0,4)}/{m.away.slice(0,4)}{statTxt && <div style={{fontSize:9,color:C.mute,fontWeight:600}}>{statTxt}</div>}</td>
+                        <td style={cellSticky}>{m.homeFlag}{m.awayFlag} {m.home.slice(0,4)}/{m.away.slice(0,4)}{statTxt && <div style={{fontSize:9,color:C.mute,fontWeight:600}}>{statTxt}</div>}</td>
                         <td style={{...cell,fontWeight:800,color:C.celesteDeep}}>{res?codeLabelShort(res,m):"—"}</td>
                         {ids.map(uid=>{ const pk=allPicks[uid]?.grupos?.[m.id]; const ok=res&&pk&&res===pk; const vis=canSee(uid,gruposOpen);
                           return <td key={uid} style={{...cell, background: vis&&ok?"#eafaf1":vis&&pk&&res?"#fdecea":"transparent", fontWeight:700, color: vis?C.ink:C.line}}>{!vis?"🔒":(pk?codeLabelShort(pk,m):"·")}</td>; })}
@@ -802,13 +802,13 @@ function AllPicksTab({ users, allPicks, results, config, me }){
             {!koOpen && <HiddenBanner lockISO={f.lock}/>}
             <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12, background:"#fff", borderRadius:10, overflow:"hidden" }}>
               <thead><tr style={{ background:C.paper }}>
-                <th style={cellH}>Cruce</th><th style={cellH}>Pasó</th>{ids.map(uid=><th key={uid} style={cellH}>{(users[uid].name||uid).slice(0,6)}{uid===me?"*":""}</th>)}
+                <th style={cellHSticky}>Cruce</th><th style={cellH}>Pasó</th>{ids.map(uid=><th key={uid} style={cellH}>{(users[uid].name||uid).slice(0,6)}{uid===me?"*":""}</th>)}
               </tr></thead>
               <tbody>
                 {(f.matchups||[]).map(mu=>{ const res=results?.ko?.[ph]?.[mu.id];
                   return (
                     <tr key={mu.id}>
-                      <td style={cell}>{flagOf(mu.teamA)}{mu.teamA.slice(0,4)} v {flagOf(mu.teamB)}{mu.teamB.slice(0,4)}</td>
+                      <td style={cellSticky}>{flagOf(mu.teamA)}{mu.teamA.slice(0,4)} v {flagOf(mu.teamB)}{mu.teamB.slice(0,4)}</td>
                       <td style={{...cell,fontWeight:800,color:C.celesteDeep}}>{res?`${flagOf(res)}`:"—"}</td>
                       {ids.map(uid=>{ const pk=allPicks[uid]?.ko?.[ph]?.[mu.id]; const ok=res&&pk&&res===pk; const vis=canSee(uid,koOpen);
                         return <td key={uid} style={{...cell, background:vis&&ok?"#eafaf1":vis&&pk&&res?"#fdecea":"transparent"}}>{!vis?"🔒":(pk?flagOf(pk):"·")}</td>; })}
@@ -832,6 +832,9 @@ function HiddenBanner({ lockISO }){
 }
 const cell={ padding:"6px 8px", borderTop:`1px solid ${C.paper}`, textAlign:"center", whiteSpace:"nowrap" };
 const cellH={ padding:"6px 8px", textAlign:"center", fontSize:11, color:C.mute, whiteSpace:"nowrap" };
+// Primera columna fija al hacer scroll horizontal (sticky). zIndex para quedar sobre las demás.
+const cellSticky={ ...cell, position:"sticky", left:0, background:"#fff", zIndex:2, textAlign:"left", boxShadow:`2px 0 4px -2px rgba(12,30,51,.15)` };
+const cellHSticky={ ...cellH, position:"sticky", left:0, background:C.paper, zIndex:3, textAlign:"left", boxShadow:`2px 0 4px -2px rgba(12,30,51,.15)` };
 function codeLabelShort(code,m){ return code==="L"?m.home.slice(0,3):code==="V"?m.away.slice(0,3):"X"; }
 
 // ---------- TAB: ADMIN ----------
