@@ -143,14 +143,27 @@ const DEFAULT_CONFIG = {
 
 const PTS = { grupo: 2, ko: 3, champ: 10 };
 
-// ---------- PREGUNTAS BONUS (cierran junto con grupos) ----------
+// ---------- PREGUNTAS BONUS / TRIVIA (cierran junto con grupos, NO suman al puntaje) ----------
+// cat: "grupos" = se resuelve al terminar la fase de grupos · "mundial" = se resuelve al final del torneo
 const BONUS_QUESTIONS = [
-  { id:"arg_final",   q:"¿Argentina llega a la final?", opts:["Sí","No"] },
-  { id:"arg_goles",   q:"¿Cuántos goles mete Argentina en fase de grupos?", opts:["0 a 3","4 a 6","7 o más"] },
-  { id:"campeon_out", q:"¿Algún ex campeón del mundo queda eliminado en grupos?", opts:["Sí","No"] },
-  { id:"final_pen",   q:"¿La final se define por penales?", opts:["Sí","No"] },
-  { id:"goleador",    q:"¿De dónde sale el goleador del torneo?", opts:["Sudamérica","Europa","Otra confed."] },
+  // --- TRIVIA GRUPOS (se resuelven cuando termina la fase de grupos) ---
+  { id:"arg_goles",   cat:"grupos", q:"¿Cuántos goles mete Argentina en fase de grupos?", opts:["0 a 3","4 a 6","7 o más"] },
+  { id:"arg_1ro",     cat:"grupos", q:"¿Argentina sale 1ª en su grupo?", opts:["Sí","No"] },
+  { id:"campeon_out", cat:"grupos", q:"¿Algún ex campeón del mundo queda eliminado en grupos?", opts:["Sí","No"] },
+  { id:"grupo_muerte",cat:"grupos", q:"¿Cuál es el grupo de la muerte (más parejo)?", opts:["E","I","K","Otro"] },
+  { id:"sorpresa",    cat:"grupos", q:"¿Hay una selección 'chica' que pasa de ronda como 1ª?", opts:["Sí","No"] },
+  { id:"goles_fecha1",cat:"grupos", q:"¿Más de 40 goles en la 1ª fecha completa?", opts:["Sí","No"] },
+
+  // --- TRIVIA MUNDIAL (se resuelven al final del torneo) ---
+  { id:"arg_final",   cat:"mundial", q:"¿Argentina llega a la final?", opts:["Sí","No"] },
+  { id:"final_pen",   cat:"mundial", q:"¿La final se define por penales?", opts:["Sí","No"] },
+  { id:"goleador",    cat:"mundial", q:"¿De dónde sale el goleador del torneo?", opts:["Sudamérica","Europa","Otra confed."] },
+  { id:"campeon_conf",cat:"mundial", q:"¿De qué confederación sale el campeón?", opts:["Sudamérica","Europa","Otra"] },
+  { id:"messi_gol",   cat:"mundial", q:"¿Messi mete gol en el torneo?", opts:["Sí","No"] },
+  { id:"local_semis", cat:"mundial", q:"¿Algún anfitrión (USA/MEX/CAN) llega a semis?", opts:["Sí","No"] },
 ];
+const BONUS_GRUPOS  = BONUS_QUESTIONS.filter(q=>q.cat==="grupos");
+const BONUS_MUNDIAL = BONUS_QUESTIONS.filter(q=>q.cat==="mundial");
 
 // ---------- STORAGE HELPERS ----------
 const K = {
@@ -301,6 +314,26 @@ function computeScores(users, allPicks, results) {
   }
   rows.sort((a,b)=> b.pts-a.pts || b.hits-a.hits || a.name.localeCompare(b.name));
   return rows;
+}
+
+// ---------- TRIVIA (ranking aparte, NO afecta el puntaje general) ----------
+// cat: "grupos" | "mundial". Devuelve filas ordenadas + flag de si ya hay resultados cargados.
+function computeTrivia(users, allPicks, results, cat){
+  const qs = BONUS_QUESTIONS.filter(q=>q.cat===cat);
+  const resolved = qs.filter(q=>results?.bonus?.[q.id]);  // preguntas con respuesta oficial cargada
+  const rows=[];
+  for(const [uid,info] of Object.entries(users||{})){
+    const pk=allPicks[uid]?.bonus||{};
+    let hits=0, answered=0;
+    for(const q of qs){
+      if(pk[q.id]) answered++;
+      const r=results?.bonus?.[q.id];
+      if(r && pk[q.id] && pk[q.id]===r) hits++;
+    }
+    rows.push({ uid, name:info.name||uid, hits, answered });
+  }
+  rows.sort((a,b)=> b.hits-a.hits || b.answered-a.answered || a.name.localeCompare(b.name));
+  return { rows, total:qs.length, resolved:resolved.length };
 }
 
 // ---------- RACHA 🔥 (aciertos consecutivos, cronológico) ----------
@@ -574,27 +607,33 @@ function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
       {sub==="bonus" && (
         <div style={{ background:"#fff", borderRadius:16, padding:16, boxShadow:`0 1px 0 ${C.line}` }}>
           <LockBanner locked={gruposLocked} lockISO={config.locks.grupos} openText="Elegí antes de que arranque · cierra"/>
-          <div style={{ fontSize:14, color:C.mute, margin:"6px 0 14px" }}>Estas <b style={{color:C.solDeep}}>no suman puntos</b> — son para la joda y picardía del grupo. 😎 Se bloquean junto con la fase de grupos.</div>
-          {BONUS_QUESTIONS.map(qn=>{
-            const val=myPicks?.bonus?.[qn.id];
-            return (
-              <div key={qn.id} style={{ padding:"10px 0", borderTop:`1px solid ${C.paper}` }}>
-                <div style={{ fontSize:14, fontWeight:700, marginBottom:8 }}>{qn.q}</div>
-                <div style={{ display:"flex", gap:6 }}>
-                  {qn.opts.map(op=>(
-                    <button key={op} disabled={gruposLocked}
-                      onClick={async()=>{ await savePick(p=>{p.bonus=p.bonus||{}; p.bonus[qn.id]=op;}); }}
-                      className="pickbtn"
-                      style={{ flex:1, padding:"10px 4px", borderRadius:10, fontSize:13, fontWeight:800, cursor:gruposLocked?"not-allowed":"pointer",
-                        border: val===op?`2px solid ${C.celesteDeep}`:`2px solid ${C.line}`,
-                        background: val===op?C.celeste:"#fff", color: val===op?"#fff":C.ink, opacity:gruposLocked&&val!==op?.5:1 }}>
-                      {op}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+          <div style={{ fontSize:14, color:C.mute, margin:"6px 0 14px" }}>Estas <b style={{color:C.solDeep}}>no suman al puntaje</b> — es una trivia aparte, para la joda. 😎 Hay <b>dos campeones honoríficos</b>: uno de Grupos 🏅 y uno del Mundial 🏆. Se cargan ahora y se bloquean con la fase de grupos.</div>
+          {[["grupos","🏅 Trivia de Grupos","Se resuelven al terminar la fase de grupos."],["mundial","🏆 Trivia del Mundial","Se resuelven al final del torneo."]].map(([cat,titulo,desc])=>(
+            <div key={cat} style={{ marginBottom:18 }}>
+              <div className="disp" style={{ fontSize:20, color:C.celesteDeep, marginTop:6 }}>{titulo}</div>
+              <div style={{ fontSize:12, color:C.mute, marginBottom:6 }}>{desc}</div>
+              {BONUS_QUESTIONS.filter(q=>q.cat===cat).map(qn=>{
+                const val=myPicks?.bonus?.[qn.id];
+                return (
+                  <div key={qn.id} style={{ padding:"10px 0", borderTop:`1px solid ${C.paper}` }}>
+                    <div style={{ fontSize:14, fontWeight:700, marginBottom:8 }}>{qn.q}</div>
+                    <div style={{ display:"flex", gap:6 }}>
+                      {qn.opts.map(op=>(
+                        <button key={op} disabled={gruposLocked}
+                          onClick={async()=>{ await savePick(p=>{p.bonus=p.bonus||{}; p.bonus[qn.id]=op;}); }}
+                          className="pickbtn"
+                          style={{ flex:1, padding:"10px 4px", borderRadius:10, fontSize:13, fontWeight:800, cursor:gruposLocked?"not-allowed":"pointer",
+                            border: val===op?`2px solid ${C.celesteDeep}`:`2px solid ${C.line}`,
+                            background: val===op?C.celeste:"#fff", color: val===op?"#fff":C.ink, opacity:gruposLocked&&val!==op?.5:1 }}>
+                          {op}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
 
@@ -703,6 +742,47 @@ function BoardTab({ users, allPicks, results, me, snap }){
         );
       })}
       <div style={{ fontSize:12, color:C.mute, marginTop:8 }}>Grupos: 2 pts · Eliminación: 3 pts · Campeón: 10 pts. Las preguntas bonus ⭐ no suman puntos (son para la joda). ▲▼ = cambio desde el último resultado · 🔥 = racha de aciertos. Se actualiza sola cada ~25 s.</div>
+
+      <TriviaBoard {...{users,allPicks,results,me}}/>
+    </div>
+  );
+}
+
+// ---------- TRIVIA: rankings honoríficos (no afectan el puntaje) ----------
+function TriviaBoard({ users, allPicks, results, me }){
+  const cats=[
+    { cat:"grupos",  titulo:"🏅 Trivia de Grupos",  champEmoji:"🏅" },
+    { cat:"mundial", titulo:"🏆 Trivia del Mundial", champEmoji:"🏆" },
+  ];
+  return (
+    <div style={{ marginTop:22 }}>
+      <div className="disp" style={{ fontSize:24, color:C.solDeep, marginBottom:4 }}>Trivia 🎲</div>
+      <div style={{ fontSize:12, color:C.mute, marginBottom:12 }}>Ranking aparte, solo por honor. No suma al prode. El que más acierta en cada tanda se lleva la mención de campeón. 👑</div>
+      {cats.map(({cat,titulo,champEmoji})=>{
+        const { rows, total, resolved } = computeTrivia(users,allPicks,results,cat);
+        const decided = resolved>=total && total>0;
+        const top = rows[0];
+        const champs = decided && top ? rows.filter(r=>r.hits===top.hits && top.hits>0) : [];
+        return (
+          <div key={cat} style={{ background:"#fff", borderRadius:16, padding:14, marginBottom:12, boxShadow:`0 1px 0 ${C.line}` }}>
+            <div className="disp" style={{ fontSize:19, color:C.celesteDeep }}>{titulo}</div>
+            <div style={{ fontSize:11, color:C.mute, marginBottom:8 }}>{resolved}/{total} preguntas resueltas {decided?"· ¡definido!":"· en juego"}</div>
+            {champs.length>0 && (
+              <div style={{ background:`linear-gradient(135deg,${C.sol},${C.solDeep})`, color:"#3a2c00", borderRadius:12, padding:"10px 12px", marginBottom:10, fontWeight:800 }}>
+                {champEmoji} Campeón de trivia: {champs.map(c=>c.name).join(" + ")} ({top.hits}/{total})
+              </div>
+            )}
+            {rows.filter(r=>r.answered>0 || decided).slice(0,8).map((r,i)=>(
+              <div key={r.uid} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0", borderTop:i?`1px solid ${C.paper}`:"none" }}>
+                <div className="disp" style={{ fontSize:16, width:22, textAlign:"center", color:C.mute }}>{i+1}</div>
+                <div style={{ flex:1, fontWeight:r.uid===me?800:600, color:r.uid===me?C.celesteDeep:C.ink }}>{r.name}{r.uid===me?" (vos)":""}</div>
+                <div style={{ fontSize:13, fontWeight:800, color:C.solDeep }}>{r.hits}<span style={{color:C.mute,fontWeight:600}}>/{total}</span></div>
+              </div>
+            ))}
+            {rows.every(r=>r.answered===0) && !decided && <div style={{ fontSize:12, color:C.mute }}>Nadie contestó todavía.</div>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -739,21 +819,26 @@ function AllPicksTab({ users, allPicks, results, config, me }){
       {view==="bonus" && (
         <>
           {!gruposOpen && <HiddenBanner lockISO={config.locks.grupos}/>}
-          {BONUS_QUESTIONS.map(qn=>{
-            const res=results?.bonus?.[qn.id];
-            return (
-              <div key={qn.id} className="scrollx" style={{ overflowX:"auto", marginBottom:12 }}>
-                <div style={{ fontSize:13, fontWeight:800, color:C.celesteDeep, marginBottom:4 }}>{qn.q} {res && <Pill bg={C.good}>{res}</Pill>}</div>
-                <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12, background:"#fff", borderRadius:10, overflow:"hidden" }}>
-                  <thead><tr style={{ background:C.paper }}>{ids.map(uid=><th key={uid} style={cellH}>{(users[uid].name||uid).slice(0,6)}{uid===me?"*":""}</th>)}</tr></thead>
-                  <tbody><tr>
-                    {ids.map(uid=>{ const pk=allPicks[uid]?.bonus?.[qn.id]; const ok=res&&pk&&res===pk; const vis=canSee(uid,gruposOpen);
-                      return <td key={uid} style={{...cell, background:vis&&ok?"#eafaf1":vis&&pk&&res?"#fdecea":"transparent", fontWeight:700, color:vis?C.ink:C.line}}>{!vis?"🔒":(pk||"·")}</td>; })}
-                  </tr></tbody>
-                </table>
-              </div>
-            );
-          })}
+          {[["grupos","🏅 Trivia de Grupos"],["mundial","🏆 Trivia del Mundial"]].map(([cat,titulo])=>(
+            <div key={cat} style={{ marginBottom:6 }}>
+              <div className="disp" style={{ fontSize:18, color:C.solDeep, marginTop:6, marginBottom:4 }}>{titulo}</div>
+              {BONUS_QUESTIONS.filter(q=>q.cat===cat).map(qn=>{
+                const res=results?.bonus?.[qn.id];
+                return (
+                  <div key={qn.id} className="scrollx" style={{ overflowX:"auto", marginBottom:12 }}>
+                    <div style={{ fontSize:13, fontWeight:800, color:C.celesteDeep, marginBottom:4 }}>{qn.q} {res && <Pill bg={C.good}>{res}</Pill>}</div>
+                    <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12, background:"#fff", borderRadius:10, overflow:"hidden" }}>
+                      <thead><tr style={{ background:C.paper }}>{ids.map(uid=><th key={uid} style={cellH}>{(users[uid].name||uid).slice(0,6)}{uid===me?"*":""}</th>)}</tr></thead>
+                      <tbody><tr>
+                        {ids.map(uid=>{ const pk=allPicks[uid]?.bonus?.[qn.id]; const ok=res&&pk&&res===pk; const vis=canSee(uid,gruposOpen);
+                          return <td key={uid} style={{...cell, background:vis&&ok?"#eafaf1":vis&&pk&&res?"#fdecea":"transparent", fontWeight:700, color:vis?C.ink:C.line}}>{!vis?"🔒":(pk||"·")}</td>; })}
+                      </tr></tbody>
+                    </table>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </>
       )}
 
@@ -978,19 +1063,24 @@ function AdminTab({ config, setConfig, results, setResults, flash, refresh, user
 
       {secc==="resB" && (
         <div style={{ background:"#fff", borderRadius:14, padding:14 }}>
-          <p style={{fontSize:13,color:C.mute,marginTop:0}}>Marcá la respuesta correcta de cada pregunta bonus cuando se resuelva.</p>
-          {BONUS_QUESTIONS.map(qn=>(
-            <div key={qn.id} style={{ padding:"8px 0", borderTop:`1px solid ${C.paper}` }}>
-              <div style={{ fontSize:13, fontWeight:700, marginBottom:6 }}>{qn.q}</div>
-              <div style={{ display:"flex", gap:6 }}>
-                {qn.opts.map(op=>(
-                  <button key={op} onClick={()=>{const r={...results};r.bonus={...(r.bonus||{}),[qn.id]:op};saveResults(r);}}
-                    style={{ flex:1, padding:"7px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:12,
-                      background: results?.bonus?.[qn.id]===op?C.celesteDeep:C.paper, color:results?.bonus?.[qn.id]===op?"#fff":C.ink }}>
-                    {op}
-                  </button>
-                ))}
-              </div>
+          <p style={{fontSize:13,color:C.mute,marginTop:0}}>Marcá la respuesta correcta de cada pregunta de trivia cuando se resuelva. No afecta el puntaje general; define los campeones honoríficos 🏅🏆.</p>
+          {[["grupos","🏅 Trivia de Grupos"],["mundial","🏆 Trivia del Mundial"]].map(([cat,titulo])=>(
+            <div key={cat} style={{ marginBottom:14 }}>
+              <div className="disp" style={{ fontSize:16, color:C.celesteDeep, marginTop:6 }}>{titulo}</div>
+              {BONUS_QUESTIONS.filter(q=>q.cat===cat).map(qn=>(
+                <div key={qn.id} style={{ padding:"8px 0", borderTop:`1px solid ${C.paper}` }}>
+                  <div style={{ fontSize:13, fontWeight:700, marginBottom:6 }}>{qn.q}</div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    {qn.opts.map(op=>(
+                      <button key={op} onClick={()=>{const r={...results};r.bonus={...(r.bonus||{}),[qn.id]:op};saveResults(r);}}
+                        style={{ flex:1, padding:"7px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:12,
+                          background: results?.bonus?.[qn.id]===op?C.celesteDeep:C.paper, color:results?.bonus?.[qn.id]===op?"#fff":C.ink }}>
+                        {op}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
         </div>
