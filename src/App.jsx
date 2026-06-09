@@ -141,7 +141,16 @@ const DEFAULT_CONFIG = {
   ko: JSON.parse(JSON.stringify(KO_DEFAULT)),
 };
 
-const PTS = { grupo: 2, ko: 3, champ: 10 };
+const PTS = { grupo: 2, ko: 3, champ: 10, bonus: 3 };
+
+// ---------- PREGUNTAS BONUS (cierran junto con grupos) ----------
+const BONUS_QUESTIONS = [
+  { id:"arg_final",   q:"¿Argentina llega a la final?", opts:["Sí","No"] },
+  { id:"arg_goles",   q:"¿Cuántos goles mete Argentina en fase de grupos?", opts:["0 a 3","4 a 6","7 o más"] },
+  { id:"campeon_out", q:"¿Algún ex campeón del mundo queda eliminado en grupos?", opts:["Sí","No"] },
+  { id:"final_pen",   q:"¿La final se define por penales?", opts:["Sí","No"] },
+  { id:"goleador",    q:"¿De dónde sale el goleador del torneo?", opts:["Sudamérica","Europa","Otra confed."] },
+];
 
 // ---------- STORAGE HELPERS ----------
 const K = {
@@ -150,6 +159,7 @@ const K = {
   results: "scalonetta:results",
   picks: (u) => `scalonetta:picks:${u}`,
   picksPrefix: "scalonetta:picks:",
+  snap: "scalonetta:ranksnap",
 };
 
 // ---------- ESTILO ----------
@@ -281,11 +291,78 @@ function computeScores(users, allPicks, results) {
     // campeón
     const champHit = results?.champion && pk?.champion && results.champion===pk.champion;
     if(champHit) pts+=PTS.champ;
+    // bonus
+    for(const q of BONUS_QUESTIONS){
+      const r=results?.bonus?.[q.id]; const g=pk?.bonus?.[q.id];
+      if(r && g && r===g){ pts+=PTS.bonus; hits++; }
+    }
     rows.push({ uid, name:info.name||uid, pts, hits, champHit, champ:pk?.champion });
   }
   rows.sort((a,b)=> b.pts-a.pts || b.hits-a.hits || a.name.localeCompare(b.name));
   return rows;
 }
+
+// ---------- RACHA 🔥 (aciertos consecutivos, cronológico) ----------
+function computeStreak(pk, results){
+  const seq=[];
+  const resolved = GROUP_MATCHES.filter(m=>results?.grupos?.[m.id]).slice()
+    .sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
+  for(const m of resolved) seq.push({ pick: pk?.grupos?.[m.id], res: results.grupos[m.id] });
+  for(const ph of KO_ORDER){
+    const rr=results?.ko?.[ph]||{};
+    for(const mid of Object.keys(rr)) seq.push({ pick: pk?.ko?.[ph]?.[mid], res: rr[mid] });
+  }
+  let streak=0;
+  for(let i=seq.length-1;i>=0;i--){
+    if(seq[i].pick && seq[i].pick===seq[i].res) streak++;
+    else break;
+  }
+  return streak;
+}
+
+// ---------- BADGES (títulos de cargada) ----------
+function computeBadges(users, allPicks, results){
+  const resolved = GROUP_MATCHES.filter(m=>results?.grupos?.[m.id]);
+  if(resolved.length<5) return {};
+  const ids=Object.keys(users||{});
+  // pick mayoritario por partido
+  const majority={};
+  for(const m of resolved){
+    const cnt={L:0,E:0,V:0}; let tot=0;
+    for(const uid of ids){ const p=allPicks[uid]?.grupos?.[m.id]; if(p){cnt[p]++;tot++;} }
+    if(tot>=3) majority[m.id]=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0][0];
+  }
+  const stats=[];
+  for(const uid of ids){
+    let hits=0, played=0, agree=0, agreeTot=0;
+    for(const m of resolved){
+      const p=allPicks[uid]?.grupos?.[m.id]; if(!p) continue;
+      played++;
+      if(p===results.grupos[m.id]) hits++;
+      if(majority[m.id]!=null){ agreeTot++; if(p===majority[m.id]) agree++; }
+    }
+    if(played>=5) stats.push({uid,hits,played,agreeRate:agreeTot?agree/agreeTot:null});
+  }
+  if(stats.length<2) return {};
+  const badges={}; const add=(uid,b)=>{ (badges[uid]=badges[uid]||[]).push(b); };
+  const maxH=Math.max(...stats.map(s=>s.hits)), minH=Math.min(...stats.map(s=>s.hits));
+  if(maxH>minH){
+    stats.filter(s=>s.hits===maxH).forEach(s=>add(s.uid,"🎯 Oráculo"));
+    stats.filter(s=>s.hits===minH).forEach(s=>add(s.uid,"🥶 Heladera"));
+  }
+  const wa = stats.filter(s=>s.agreeRate!=null);
+  if(wa.length>=2){
+    const maxA=Math.max(...wa.map(s=>s.agreeRate)), minA=Math.min(...wa.map(s=>s.agreeRate));
+    if(maxA>minA){
+      wa.filter(s=>s.agreeRate===maxA && maxA>=0.7).forEach(s=>add(s.uid,"🐑 Oveja"));
+      wa.filter(s=>s.agreeRate===minA && minA<=0.45).forEach(s=>add(s.uid,"🃏 Kamikaze"));
+    }
+  }
+  return badges;
+}
+
+// hash simple para detectar cambios de resultados (snapshot de ranking)
+function hashStr(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; } return String(h); }
 
 // ============================================================
 //  APP
@@ -297,6 +374,7 @@ function AppInner(){
   const [config,setConfig]=useState(DEFAULT_CONFIG);
   const [results,setResults]=useState({grupos:{},ko:{},champion:null});
   const [allPicks,setAllPicks]=useState({});
+  const [snap,setSnap]=useState(null);
   const [tab,setTab]=useState("picks");
   const [toast,setToast]=useState("");
   const meRef = React.useRef(null);
@@ -320,6 +398,7 @@ function AppInner(){
       grupos: resRaw?.grupos || {},
       ko: resRaw?.ko || {},
       champion: resRaw?.champion ?? null,
+      bonus: resRaw?.bonus || {},
     };
     const picks={};
     try{
@@ -327,7 +406,7 @@ function AppInner(){
       for(const key of (list||[])){
         const uid=key.replace(K.picksPrefix,"");
         const pk = await sget(key,{})||{};
-        picks[uid] = { grupos: pk.grupos||{}, ko: pk.ko||{}, champion: pk.champion ?? null };
+        picks[uid] = { grupos: pk.grupos||{}, ko: pk.ko||{}, champion: pk.champion ?? null, bonus: pk.bonus||{} };
       }
     }catch{}
     // Proteger los picks propios recién guardados: si el storage trae menos data
@@ -336,11 +415,24 @@ function AppInner(){
     if(myId && myPicksRef.current){
       const fromStore = picks[myId];
       const local = myPicksRef.current;
-      const cnt = (o)=> (Object.keys(o?.grupos||{}).length + Object.keys(o?.ko||{}).reduce((a,ph)=>a+Object.keys(o.ko[ph]||{}).length,0) + (o?.champion?1:0));
+      const cnt = (o)=> (Object.keys(o?.grupos||{}).length + Object.keys(o?.ko||{}).reduce((a,ph)=>a+Object.keys(o.ko[ph]||{}).length,0) + (o?.champion?1:0) + Object.keys(o?.bonus||{}).length);
       if(!fromStore || cnt(local) > cnt(fromStore)){
         picks[myId] = local;
       }
     }
+    // Snapshot de ranking: cuando cambian los resultados, el ranking anterior
+    // queda guardado para mostrar movimiento ↑↓ en la tabla.
+    try{
+      const rows = computeScores(u, picks, res);
+      const curRanks = {}; rows.forEach((r,i)=>{ curRanks[r.uid]=i+1; });
+      const curHash = hashStr(JSON.stringify([res.grupos,res.ko,res.champion,res.bonus]));
+      let sn = await sget(K.snap, null);
+      if(!sn || sn.hash!==curHash){
+        sn = { hash:curHash, ranks:curRanks, prevRanks: sn?.ranks || null };
+        await sset(K.snap, sn);
+      }
+      setSnap(sn);
+    }catch{}
     setUsers(u); setConfig(cfg); setResults(res); setAllPicks(picks);
   },[]);
 
@@ -356,11 +448,11 @@ function AppInner(){
   const isAdmin = me && config.adminUser===me;
 
   // guardar pick propio (robusto: confirma escritura y reintenta lectura)
-  const myPicks = allPicks[me] || { grupos:{}, ko:{}, champion:null };
+  const myPicks = allPicks[me] || { grupos:{}, ko:{}, champion:null, bonus:{} };
   useEffect(()=>{ meRef.current=me; myPicksRef.current = myPicks; });
   const savePick = async (mutator) => {
-    const cur = await sget(K.picks(me), {grupos:{},ko:{},champion:null}) || {grupos:{},ko:{},champion:null};
-    if(!cur.grupos) cur.grupos={}; if(!cur.ko) cur.ko={}; if(!("champion" in cur)) cur.champion=null;
+    const cur = await sget(K.picks(me), {grupos:{},ko:{},champion:null,bonus:{}}) || {grupos:{},ko:{},champion:null,bonus:{}};
+    if(!cur.grupos) cur.grupos={}; if(!cur.ko) cur.ko={}; if(!("champion" in cur)) cur.champion=null; if(!cur.bonus) cur.bonus={};
     mutator(cur);
     // optimista: mostramos ya
     setAllPicks(p=>({...p,[me]:cur}));
@@ -407,7 +499,7 @@ function AppInner(){
 
       <div style={{ maxWidth:760, margin:"0 auto", padding:"14px 12px 60px" }}>
         {tab==="picks" && <PicksTab {...{config,myPicks,savePick,gruposLocked,flash}}/>}
-        {tab==="board" && <BoardTab {...{users,allPicks,results,me,config}}/>}
+        {tab==="board" && <BoardTab {...{users,allPicks,results,me,config,snap}}/>}
         {tab==="all"   && <AllPicksTab {...{users,allPicks,results,config,me}}/>}
         {tab==="admin" && isAdmin && <AdminTab {...{config,setConfig,results,setResults,flash,refresh,users,allPicks,me}}/>}
       </div>
@@ -426,6 +518,7 @@ function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
       <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
         <SubTab id="grupos" cur={sub} set={setSub} label="Fase de grupos"/>
         <SubTab id="champ" cur={sub} set={setSub} label="Campeón 🏆"/>
+        <SubTab id="bonus" cur={sub} set={setSub} label="Bonus ⭐"/>
         <SubTab id="ko" cur={sub} set={setSub} label="Eliminación"/>
       </div>
 
@@ -474,6 +567,33 @@ function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
             ))}
           </select>
           {myPicks?.champion && <div className="disp" style={{ marginTop:14, fontSize:26, textAlign:"center", color:C.solDeep }}>{flagOf(myPicks.champion)} {myPicks.champion}</div>}
+        </div>
+      )}
+
+      {sub==="bonus" && (
+        <div style={{ background:"#fff", borderRadius:16, padding:16, boxShadow:`0 1px 0 ${C.line}` }}>
+          <LockBanner locked={gruposLocked} lockISO={config.locks.grupos} openText="Elegí antes de que arranque · cierra"/>
+          <div style={{ fontSize:14, color:C.mute, margin:"6px 0 14px" }}>Cada acierto suma <b style={{color:C.solDeep}}>{PTS.bonus} puntos</b>. Se bloquean junto con la fase de grupos.</div>
+          {BONUS_QUESTIONS.map(qn=>{
+            const val=myPicks?.bonus?.[qn.id];
+            return (
+              <div key={qn.id} style={{ padding:"10px 0", borderTop:`1px solid ${C.paper}` }}>
+                <div style={{ fontSize:14, fontWeight:700, marginBottom:8 }}>{qn.q}</div>
+                <div style={{ display:"flex", gap:6 }}>
+                  {qn.opts.map(op=>(
+                    <button key={op} disabled={gruposLocked}
+                      onClick={async()=>{ await savePick(p=>{p.bonus=p.bonus||{}; p.bonus[qn.id]=op;}); }}
+                      className="pickbtn"
+                      style={{ flex:1, padding:"10px 4px", borderRadius:10, fontSize:13, fontWeight:800, cursor:gruposLocked?"not-allowed":"pointer",
+                        border: val===op?`2px solid ${C.celesteDeep}`:`2px solid ${C.line}`,
+                        background: val===op?C.celeste:"#fff", color: val===op?"#fff":C.ink, opacity:gruposLocked&&val!==op?.5:1 }}>
+                      {op}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -531,25 +651,57 @@ function KoPicks({ config, myPicks, savePick, flash }){
 }
 
 // ---------- TAB: TABLA ----------
-function BoardTab({ users, allPicks, results, me }){
+function BoardTab({ users, allPicks, results, me, snap }){
   const rows=useMemo(()=>computeScores(users,allPicks,results),[users,allPicks,results]);
+  const badges=useMemo(()=>computeBadges(users,allPicks,results),[users,allPicks,results]);
   const medals=["🥇","🥈","🥉"];
+  const prev = snap?.prevRanks || null;
+
+  const shareWhatsApp = () => {
+    const lines = rows.slice(0,10).map((r,i)=>`${medals[i]||(i+1)+"."} ${r.name} — ${r.pts} pts`);
+    const txt = `🏆 LA SCALONETTA · Tabla\n\n${lines.join("\n")}\n\n¿Te la bancás? Entrá y jugá 👉 ${location.origin}`;
+    if(navigator.share){ navigator.share({text:txt}).catch(()=>{}); }
+    else { navigator.clipboard?.writeText(txt); alert("Tabla copiada \u2713 Pegala en el grupo de WhatsApp."); }
+  };
+
+  const Move = ({uid}) => {
+    if(!prev || prev[uid]==null) return null;
+    const now = rows.findIndex(r=>r.uid===uid)+1;
+    const d = prev[uid]-now;
+    if(d>0) return <span style={{color:C.good,fontSize:11,fontWeight:800}}>▲{d}</span>;
+    if(d<0) return <span style={{color:C.bad,fontSize:11,fontWeight:800}}>▼{-d}</span>;
+    return <span style={{color:C.mute,fontSize:11,fontWeight:800}}>=</span>;
+  };
+
   return (
     <div className="card">
-      <div className="disp" style={{ fontSize:26, color:C.celesteDeep, marginBottom:10 }}>Tabla general</div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+        <div className="disp" style={{ fontSize:26, color:C.celesteDeep }}>Tabla general</div>
+        {rows.length>0 && <Btn kind="sol" style={{padding:"8px 12px",fontSize:13}} onClick={shareWhatsApp}>📲 Compartir</Btn>}
+      </div>
       {!rows.length && <div style={{color:C.mute}}>Todavía no hay jugadores.</div>}
-      {rows.map((r,i)=>(
+      {rows.map((r,i)=>{
+        const streak=computeStreak(allPicks[r.uid]||{}, results);
+        const myBadges=badges[r.uid]||[];
+        return (
         <div key={r.uid} style={{ display:"flex", alignItems:"center", gap:12, background: r.uid===me?C.celeste:"#fff", color:r.uid===me?"#fff":C.ink,
           borderRadius:14, padding:"12px 14px", marginBottom:8, boxShadow:`0 1px 0 ${C.line}` }}>
-          <div className="disp" style={{ fontSize:22, width:34, textAlign:"center" }}>{medals[i]||i+1}</div>
-          <div style={{ flex:1 }}>
-            <div style={{ fontWeight:800 }}>{r.name} {r.champHit?"👑":""}</div>
+          <div style={{ width:34, textAlign:"center" }}>
+            <div className="disp" style={{ fontSize:22, lineHeight:1 }}>{medals[i]||i+1}</div>
+            <Move uid={r.uid}/>
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontWeight:800 }}>{r.name} {r.champHit?"👑":""} {streak>=3?<span title={`Racha de ${streak}`}>{`🔥${streak}`}</span>:""}</div>
             <div style={{ fontSize:12, opacity:.8 }}>{r.hits} aciertos {r.champ?`· campeón: ${flagOf(r.champ)} ${r.champ}`:""}</div>
+            {myBadges.length>0 && <div style={{ fontSize:11, marginTop:3, display:"flex", gap:5, flexWrap:"wrap" }}>
+              {myBadges.map(b=><span key={b} style={{ background:r.uid===me?"rgba(255,255,255,.22)":C.paper, padding:"1px 7px", borderRadius:20, fontWeight:700 }}>{b}</span>)}
+            </div>}
           </div>
           <div className="disp" style={{ fontSize:30, color:r.uid===me?"#fff":C.solDeep }}>{r.pts}</div>
         </div>
-      ))}
-      <div style={{ fontSize:12, color:C.mute, marginTop:8 }}>Grupos: 2 pts · Eliminación: 3 pts · Campeón: 10 pts. Se actualiza sola cada ~25 s.</div>
+        );
+      })}
+      <div style={{ fontSize:12, color:C.mute, marginTop:8 }}>Grupos: 2 pts · Eliminación: 3 pts · Bonus: 3 pts · Campeón: 10 pts. ▲▼ = cambio desde el último resultado · 🔥 = racha de aciertos. Se actualiza sola cada ~25 s.</div>
     </div>
   );
 }
@@ -566,6 +718,7 @@ function AllPicksTab({ users, allPicks, results, config, me }){
       <div style={{ display:"flex", gap:6, marginBottom:12, flexWrap:"wrap" }}>
         <SubTab id="grupos" cur={view} set={setView} label="Grupos"/>
         <SubTab id="champ" cur={view} set={setView} label="Campeón"/>
+        <SubTab id="bonus" cur={view} set={setView} label="Bonus"/>
         <SubTab id="ko" cur={view} set={setView} label="Eliminación"/>
       </div>
       {!ids.length && <div style={{color:C.mute}}>Sin jugadores aún.</div>}
@@ -582,6 +735,27 @@ function AllPicksTab({ users, allPicks, results, config, me }){
         </div>
       )}
 
+      {view==="bonus" && (
+        <>
+          {!gruposOpen && <HiddenBanner lockISO={config.locks.grupos}/>}
+          {BONUS_QUESTIONS.map(qn=>{
+            const res=results?.bonus?.[qn.id];
+            return (
+              <div key={qn.id} className="scrollx" style={{ overflowX:"auto", marginBottom:12 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:C.celesteDeep, marginBottom:4 }}>{qn.q} {res && <Pill bg={C.good}>{res}</Pill>}</div>
+                <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12, background:"#fff", borderRadius:10, overflow:"hidden" }}>
+                  <thead><tr style={{ background:C.paper }}>{ids.map(uid=><th key={uid} style={cellH}>{(users[uid].name||uid).slice(0,6)}{uid===me?"*":""}</th>)}</tr></thead>
+                  <tbody><tr>
+                    {ids.map(uid=>{ const pk=allPicks[uid]?.bonus?.[qn.id]; const ok=res&&pk&&res===pk; const vis=canSee(uid,gruposOpen);
+                      return <td key={uid} style={{...cell, background:vis&&ok?"#eafaf1":vis&&pk&&res?"#fdecea":"transparent", fontWeight:700, color:vis?C.ink:C.line}}>{!vis?"🔒":(pk||"·")}</td>; })}
+                  </tr></tbody>
+                </table>
+              </div>
+            );
+          })}
+        </>
+      )}
+
       {view==="grupos" && (
         <>
           {!gruposOpen && <HiddenBanner lockISO={config.locks.grupos}/>}
@@ -595,9 +769,17 @@ function AllPicksTab({ users, allPicks, results, config, me }){
                 <tbody>
                   {GROUP_MATCHES.filter(m=>m.group===g.id).map(m=>{
                     const res=results?.grupos?.[m.id];
+                    // stats del grupo: cuántos votaron cada opción (solo si la fase cerró)
+                    let statTxt="";
+                    if(gruposOpen){
+                      const c={L:0,E:0,V:0}; let tot=0;
+                      for(const uid of ids){ const p=allPicks[uid]?.grupos?.[m.id]; if(p){c[p]++;tot++;} }
+                      if(tot){ const pct=(n)=>Math.round(n/tot*100);
+                        statTxt=`${m.home.slice(0,3)} ${pct(c.L)}% · X ${pct(c.E)}% · ${m.away.slice(0,3)} ${pct(c.V)}%`; }
+                    }
                     return (
                       <tr key={m.id}>
-                        <td style={cell}>{m.homeFlag}{m.awayFlag} {m.home.slice(0,4)}/{m.away.slice(0,4)}</td>
+                        <td style={cell}>{m.homeFlag}{m.awayFlag} {m.home.slice(0,4)}/{m.away.slice(0,4)}{statTxt && <div style={{fontSize:9,color:C.mute,fontWeight:600}}>{statTxt}</div>}</td>
                         <td style={{...cell,fontWeight:800,color:C.celesteDeep}}>{res?codeLabelShort(res,m):"—"}</td>
                         {ids.map(uid=>{ const pk=allPicks[uid]?.grupos?.[m.id]; const ok=res&&pk&&res===pk; const vis=canSee(uid,gruposOpen);
                           return <td key={uid} style={{...cell, background: vis&&ok?"#eafaf1":vis&&pk&&res?"#fdecea":"transparent", fontWeight:700, color: vis?C.ink:C.line}}>{!vis?"🔒":(pk?codeLabelShort(pk,m):"·")}</td>; })}
@@ -688,6 +870,7 @@ function AdminTab({ config, setConfig, results, setResults, flash, refresh, user
         <SubTab id="cruces" cur={secc} set={setSecc} label="Cargar cruces"/>
         <SubTab id="resG" cur={secc} set={setSecc} label="Result. grupos"/>
         <SubTab id="resK" cur={secc} set={setSecc} label="Result. elim."/>
+        <SubTab id="resB" cur={secc} set={setSecc} label="Result. bonus"/>
         <SubTab id="users" cur={secc} set={setSecc} label="Jugadores"/>
       </div>
 
@@ -787,6 +970,26 @@ function AdminTab({ config, setConfig, results, setResults, flash, refresh, user
         </div>
       )}
 
+      {secc==="resB" && (
+        <div style={{ background:"#fff", borderRadius:14, padding:14 }}>
+          <p style={{fontSize:13,color:C.mute,marginTop:0}}>Marcá la respuesta correcta de cada pregunta bonus cuando se resuelva.</p>
+          {BONUS_QUESTIONS.map(qn=>(
+            <div key={qn.id} style={{ padding:"8px 0", borderTop:`1px solid ${C.paper}` }}>
+              <div style={{ fontSize:13, fontWeight:700, marginBottom:6 }}>{qn.q}</div>
+              <div style={{ display:"flex", gap:6 }}>
+                {qn.opts.map(op=>(
+                  <button key={op} onClick={()=>{const r={...results};r.bonus={...(r.bonus||{}),[qn.id]:op};saveResults(r);}}
+                    style={{ flex:1, padding:"7px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:12,
+                      background: results?.bonus?.[qn.id]===op?C.celesteDeep:C.paper, color:results?.bonus?.[qn.id]===op?"#fff":C.ink }}>
+                    {op}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ background:"#fff", borderRadius:14, padding:14, marginTop:14 }}>
         <div className="disp" style={{ fontSize:18, color:C.celesteDeep, marginBottom:6 }}>Exportar a planilla 📊</div>
         <div style={{ fontSize:13, color:C.mute, marginBottom:10 }}>Baja un CSV con todos los jugadores y sus pronósticos (grupos, campeón y eliminación). Lo abrís en Google Sheets / Excel. Sirve también como backup.</div>
@@ -819,6 +1022,9 @@ async function exportCSV(config){
   for(const [uid,info] of Object.entries(users)){
     const name=info.name||uid; const pk=picks[uid]||{};
     rows.push(["Campeón",name,"—","Campeón (10 pts)",pk.champion||"",results.champion||""].map(esc).join(","));
+    for(const q of BONUS_QUESTIONS){
+      rows.push(["Bonus",name,"Bonus",q.q, pk?.bonus?.[q.id]||"", results?.bonus?.[q.id]||""].map(esc).join(","));
+    }
     for(const m of GROUP_MATCHES){
       rows.push(["Grupo",name,`Grupo ${m.group}`,`${m.home} vs ${m.away}`, labelG(pk?.grupos?.[m.id],m), labelG(results?.grupos?.[m.id],m)].map(esc).join(","));
     }
