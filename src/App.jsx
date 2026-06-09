@@ -141,7 +141,7 @@ const DEFAULT_CONFIG = {
   ko: JSON.parse(JSON.stringify(KO_DEFAULT)),
 };
 
-const PTS = { grupo: 2, ko: 3, champ: 10, bonus: 3 };
+const PTS = { grupo: 2, ko: 3, champ: 10 };
 
 // ---------- PREGUNTAS BONUS (cierran junto con grupos) ----------
 const BONUS_QUESTIONS = [
@@ -291,12 +291,13 @@ function computeScores(users, allPicks, results) {
     // campeón
     const champHit = results?.champion && pk?.champion && results.champion===pk.champion;
     if(champHit) pts+=PTS.champ;
-    // bonus
+    // bonus: NO suma puntos (es solo para la joda). Contamos aciertos aparte para mostrar.
+    let bonusHits=0;
     for(const q of BONUS_QUESTIONS){
       const r=results?.bonus?.[q.id]; const g=pk?.bonus?.[q.id];
-      if(r && g && r===g){ pts+=PTS.bonus; hits++; }
+      if(r && g && r===g){ bonusHits++; }
     }
-    rows.push({ uid, name:info.name||uid, pts, hits, champHit, champ:pk?.champion });
+    rows.push({ uid, name:info.name||uid, pts, hits, bonusHits, champHit, champ:pk?.champion });
   }
   rows.sort((a,b)=> b.pts-a.pts || b.hits-a.hits || a.name.localeCompare(b.name));
   return rows;
@@ -573,7 +574,7 @@ function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
       {sub==="bonus" && (
         <div style={{ background:"#fff", borderRadius:16, padding:16, boxShadow:`0 1px 0 ${C.line}` }}>
           <LockBanner locked={gruposLocked} lockISO={config.locks.grupos} openText="Elegí antes de que arranque · cierra"/>
-          <div style={{ fontSize:14, color:C.mute, margin:"6px 0 14px" }}>Cada acierto suma <b style={{color:C.solDeep}}>{PTS.bonus} puntos</b>. Se bloquean junto con la fase de grupos.</div>
+          <div style={{ fontSize:14, color:C.mute, margin:"6px 0 14px" }}>Estas <b style={{color:C.solDeep}}>no suman puntos</b> — son para la joda y picardía del grupo. 😎 Se bloquean junto con la fase de grupos.</div>
           {BONUS_QUESTIONS.map(qn=>{
             const val=myPicks?.bonus?.[qn.id];
             return (
@@ -692,7 +693,7 @@ function BoardTab({ users, allPicks, results, me, snap }){
           </div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:800 }}>{r.name} {r.champHit?"👑":""} {streak>=3?<span title={`Racha de ${streak}`}>{`🔥${streak}`}</span>:""}</div>
-            <div style={{ fontSize:12, opacity:.8 }}>{r.hits} aciertos {r.champ?`· campeón: ${flagOf(r.champ)} ${r.champ}`:""}</div>
+            <div style={{ fontSize:12, opacity:.8 }}>{r.hits} aciertos {r.bonusHits>0?`· ⭐${r.bonusHits} bonus`:""} {r.champ?`· campeón: ${flagOf(r.champ)} ${r.champ}`:""}</div>
             {myBadges.length>0 && <div style={{ fontSize:11, marginTop:3, display:"flex", gap:5, flexWrap:"wrap" }}>
               {myBadges.map(b=><span key={b} style={{ background:r.uid===me?"rgba(255,255,255,.22)":C.paper, padding:"1px 7px", borderRadius:20, fontWeight:700 }}>{b}</span>)}
             </div>}
@@ -701,7 +702,7 @@ function BoardTab({ users, allPicks, results, me, snap }){
         </div>
         );
       })}
-      <div style={{ fontSize:12, color:C.mute, marginTop:8 }}>Grupos: 2 pts · Eliminación: 3 pts · Bonus: 3 pts · Campeón: 10 pts. ▲▼ = cambio desde el último resultado · 🔥 = racha de aciertos. Se actualiza sola cada ~25 s.</div>
+      <div style={{ fontSize:12, color:C.mute, marginTop:8 }}>Grupos: 2 pts · Eliminación: 3 pts · Campeón: 10 pts. Las preguntas bonus ⭐ no suman puntos (son para la joda). ▲▼ = cambio desde el último resultado · 🔥 = racha de aciertos. Se actualiza sola cada ~25 s.</div>
     </div>
   );
 }
