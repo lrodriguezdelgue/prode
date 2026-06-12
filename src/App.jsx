@@ -137,7 +137,7 @@ const KO_DEFAULT = {
 };
 const DEFAULT_CONFIG = {
   adminUser: null,
-  locks: { grupos: "2026-06-10T23:59:00-03:00" },
+  locks: { grupos: "2026-06-10T23:59:00-03:00", bonus: "2026-06-13T23:59:00-03:00" },
   ko: JSON.parse(JSON.stringify(KO_DEFAULT)),
 };
 
@@ -161,6 +161,12 @@ const BONUS_QUESTIONS = [
   { id:"campeon_conf",cat:"mundial", q:"¿De qué confederación sale el campeón?", opts:["Sudamérica","Europa","Otra"] },
   { id:"messi_gol",   cat:"mundial", q:"¿Messi mete gol en el torneo?", opts:["Sí","No"] },
   { id:"local_semis", cat:"mundial", q:"¿Algún anfitrión (USA/MEX/CAN) llega a semis?", opts:["Sí","No"] },
+
+  // --- AGREGADAS 12/6 ---
+  { id:"goleadas",    cat:"grupos",  q:"¿Cuántas goleadas (3+ de diferencia) hay en fase de grupos?", opts:["0 a 3","4 a 7","8 o más"] },
+  { id:"penal_atajado",cat:"grupos", q:"¿Algún arquero ataja un penal en fase de grupos?", opts:["Sí","No"] },
+  { id:"hat_trick",   cat:"mundial", q:"¿Hay algún hat-trick en el torneo?", opts:["Sí","No"] },
+  { id:"africano_qf", cat:"mundial", q:"¿Un equipo africano llega a cuartos?", opts:["Sí","No"] },
 ];
 const BONUS_GRUPOS  = BONUS_QUESTIONS.filter(q=>q.cat==="grupos");
 const BONUS_MUNDIAL = BONUS_QUESTIONS.filter(q=>q.cat==="mundial");
@@ -523,6 +529,7 @@ function AppInner(){
   if(!me) return <><Style/><div className="scl"><Auth users={users} onAuth={async(u)=>{ localStorage.setItem("scalonetta_user",u); await refresh(); setMe(u); }}/></div></>;
 
   const gruposLocked = isPast(config.locks.grupos);
+  const bonusLocked = isPast(config.locks.bonus || config.locks.grupos);
 
   return (
     <><Style/>
@@ -574,7 +581,7 @@ function AppInner(){
       </div>
 
       <div style={{ maxWidth:760, margin:"0 auto", padding:"14px 12px 60px" }}>
-        {tab==="picks" && <PicksTab {...{config,myPicks,savePick,gruposLocked,flash}}/>}
+        {tab==="picks" && <PicksTab {...{config,myPicks,savePick,gruposLocked,bonusLocked,flash}}/>}
         {tab==="board" && <BoardTab {...{users,allPicks,results,me,config,snap}}/>}
         {tab==="all"   && <AllPicksTab {...{users,allPicks,results,config,me}}/>}
         {tab==="admin" && isAdmin && <AdminTab {...{config,setConfig,results,setResults,flash,refresh,users,allPicks,me}}/>}
@@ -587,7 +594,7 @@ function AppInner(){
 }
 
 // ---------- TAB: MIS PRONÓSTICOS ----------
-function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
+function PicksTab({ config, myPicks, savePick, gruposLocked, bonusLocked, flash }){
   const [sub,setSub]=useState("grupos");
   return (
     <div className="card">
@@ -648,7 +655,7 @@ function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
 
       {sub==="bonus" && (
         <div style={{ background:"#fff", borderRadius:16, padding:16, boxShadow:`0 1px 0 ${C.line}` }}>
-          <LockBanner locked={gruposLocked} lockISO={config.locks.grupos} openText="Elegí antes de que arranque · cierra"/>
+          <LockBanner locked={bonusLocked} lockISO={config.locks.bonus || config.locks.grupos} openText="Abierto · cierra"/>
           <div style={{ fontSize:14, color:C.mute, margin:"6px 0 14px" }}>Estas <b style={{color:C.solDeep}}>no suman al puntaje</b> — es una trivia aparte, para la joda. 😎 Hay <b>dos campeones honoríficos</b>: uno de Grupos 🏅 y uno del Mundial 🏆. Se cargan ahora y se bloquean con la fase de grupos.</div>
           {[["grupos","🏅 Trivia de Grupos","Se resuelven al terminar la fase de grupos."],["mundial","🏆 Trivia del Mundial","Se resuelven al final del torneo."]].map(([cat,titulo,desc])=>(
             <div key={cat} style={{ marginBottom:18 }}>
@@ -661,12 +668,12 @@ function PicksTab({ config, myPicks, savePick, gruposLocked, flash }){
                     <div style={{ fontSize:14, fontWeight:700, marginBottom:8 }}>{qn.q}</div>
                     <div style={{ display:"flex", gap:6 }}>
                       {qn.opts.map(op=>(
-                        <button key={op} disabled={gruposLocked}
+                        <button key={op} disabled={bonusLocked}
                           onClick={async()=>{ await savePick(p=>{p.bonus=p.bonus||{}; p.bonus[qn.id]=op;}); }}
                           className="pickbtn"
-                          style={{ flex:1, padding:"10px 4px", borderRadius:10, fontSize:13, fontWeight:800, cursor:gruposLocked?"not-allowed":"pointer",
+                          style={{ flex:1, padding:"10px 4px", borderRadius:10, fontSize:13, fontWeight:800, cursor:bonusLocked?"not-allowed":"pointer",
                             border: val===op?`2px solid ${C.celesteDeep}`:`2px solid ${C.line}`,
-                            background: val===op?C.celeste:"#fff", color: val===op?"#fff":C.ink, opacity:gruposLocked&&val!==op?.5:1 }}>
+                            background: val===op?C.celeste:"#fff", color: val===op?"#fff":C.ink, opacity:bonusLocked&&val!==op?.5:1 }}>
                           {op}
                         </button>
                       ))}
@@ -834,6 +841,7 @@ function AllPicksTab({ users, allPicks, results, config, me }){
   const ids=Object.keys(users);
   const [view,setView]=useState("grupos");
   const gruposOpen = isPast(config.locks.grupos); // destapado al cerrar
+  const bonusOpen = isPast(config.locks.bonus || config.locks.grupos);
   // ¿se puede ver el pick de 'uid' para esta fase? propio siempre; ajeno solo si la fase cerró
   const canSee = (uid, revealed) => uid===me || revealed;
   return (
@@ -860,7 +868,7 @@ function AllPicksTab({ users, allPicks, results, config, me }){
 
       {view==="bonus" && (
         <>
-          {!gruposOpen && <HiddenBanner lockISO={config.locks.grupos}/>}
+          {!bonusOpen && <HiddenBanner lockISO={config.locks.bonus || config.locks.grupos}/>}
           {[["grupos","🏅 Trivia de Grupos"],["mundial","🏆 Trivia del Mundial"]].map(([cat,titulo])=>(
             <div key={cat} style={{ marginBottom:6 }}>
               <div className="disp" style={{ fontSize:18, color:C.solDeep, marginTop:6, marginBottom:4 }}>{titulo}</div>
@@ -872,7 +880,7 @@ function AllPicksTab({ users, allPicks, results, config, me }){
                     <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12, background:"#fff", borderRadius:10, overflow:"hidden" }}>
                       <thead><tr style={{ background:C.paper }}>{ids.map(uid=><th key={uid} style={cellH}>{(users[uid].name||uid).slice(0,6)}{uid===me?"*":""}</th>)}</tr></thead>
                       <tbody><tr>
-                        {ids.map(uid=>{ const pk=allPicks[uid]?.bonus?.[qn.id]; const ok=res&&pk&&res===pk; const vis=canSee(uid,gruposOpen);
+                        {ids.map(uid=>{ const pk=allPicks[uid]?.bonus?.[qn.id]; const ok=res&&pk&&res===pk; const vis=canSee(uid,bonusOpen);
                           return <td key={uid} style={{...cell, background:vis&&ok?"#eafaf1":vis&&pk&&res?"#fdecea":"transparent", fontWeight:700, color:vis?C.ink:C.line}}>{!vis?"🔒":(pk||"·")}</td>; })}
                       </tr></tbody>
                     </table>
@@ -1024,6 +1032,7 @@ function AdminTab({ config, setConfig, results, setResults, flash, refresh, user
         <div style={{ background:"#fff", borderRadius:14, padding:14 }}>
           <p style={{fontSize:13,color:C.mute,marginTop:0}}>Definí cuándo se cierra cada fase. Formato fecha/hora local. Las fases se cierran solas al llegar la hora.</p>
           <DateRow label="Grupos + Campeón" value={config.locks.grupos} onChange={v=>{const c={...config};c.locks={...c.locks,grupos:v};saveConfig(c);}}/>
+          <DateRow label="Bonus / Trivia ⭐" value={config.locks.bonus||config.locks.grupos} onChange={v=>{const c={...config};c.locks={...c.locks,bonus:v};saveConfig(c);}}/>
           {KO_ORDER.map(ph=>(
             <DateRow key={ph} label={config.ko[ph].label} value={config.ko[ph].lock}
               onChange={v=>{const c={...config};c.ko={...c.ko,[ph]:{...c.ko[ph],lock:v}};saveConfig(c);}}/>
