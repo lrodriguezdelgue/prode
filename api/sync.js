@@ -1,198 +1,245 @@
-// api/sync.js
-// Vercel serverless function: trae resultados de openfootball y los escribe en Supabase.
-// Se llama desde GitHub Actions cada hora.
+// api/sync.js — La Scalonetta · Sync de resultados
+// Fuente: worldcup26.ir (gratis, sin key) con fallback a football-data.org
+// Ejecutado cada hora por GitHub Actions
 
-// Mapa de nombres en inglés (openfootball) → español (nuestra app)
+import { createClient } from "@supabase/supabase-js";
+
+const SUPABASE_URL  = process.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const SYNC_SECRET   = process.env.SYNC_SECRET;
+const FD_TOKEN      = process.env.FOOTBALL_DATA_TOKEN; // opcional, free en football-data.org
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ---------- MAPA: inglés → español (nombres usados en la app) ----------
 const NAME_MAP = {
-  'Mexico':'México','South Africa':'Sudáfrica','South Korea':'Corea del Sur',
-  'Korea Republic':'Corea del Sur','Czech Republic':'Rep. Checa','Czechia':'Rep. Checa',
-  'Canada':'Canadá','Switzerland':'Suiza','Qatar':'Catar',
-  'Bosnia and Herzegovina':'Bosnia y H.','Bosnia':'Bosnia y H.',
-  'Brazil':'Brasil','Morocco':'Marruecos','Scotland':'Escocia','Haiti':'Haití',
-  'United States':'Estados Unidos','USA':'Estados Unidos',
-  'Australia':'Australia','Paraguay':'Paraguay','Turkey':'Türkiye','Türkiye':'Türkiye',
-  'Germany':'Alemania','Ecuador':'Ecuador',
-  "Côte d'Ivoire":'Costa de Marfil','Ivory Coast':'Costa de Marfil',
-  'Curaçao':'Curazao','Curacao':'Curazao',
-  'Netherlands':'Países Bajos','Holland':'Países Bajos',
-  'Japan':'Japón','Tunisia':'Túnez','Sweden':'Suecia',
-  'Belgium':'Bélgica','Iran':'Irán','Egypt':'Egipto','New Zealand':'Nueva Zelanda',
-  'Spain':'España','Uruguay':'Uruguay','Saudi Arabia':'Arabia Saudí',
-  'Cape Verde':'Cabo Verde',
-  'France':'Francia','Senegal':'Senegal','Norway':'Noruega','Iraq':'Irak',
-  'Argentina':'Argentina','Austria':'Austria','Algeria':'Argelia','Jordan':'Jordania',
-  'Portugal':'Portugal','Colombia':'Colombia','Uzbekistan':'Uzbekistán',
-  'DR Congo':'R.D. Congo','Congo DR':'R.D. Congo','Democratic Republic of Congo':'R.D. Congo',
-  'England':'Inglaterra','Croatia':'Croacia','Panama':'Panamá','Ghana':'Ghana',
+  // Grupo A
+  "Mexico": "México", "South Africa": "Sudáfrica",
+  "South Korea": "Corea del Sur", "Czech Republic": "Rep. Checa",
+  // Grupo B
+  "Canada": "Canadá", "Switzerland": "Suiza",
+  "Qatar": "Catar", "Bosnia & Herzegovina": "Bosnia y H.", "Bosnia and Herzegovina": "Bosnia y H.",
+  // Grupo C
+  "Brazil": "Brasil", "Morocco": "Marruecos", "Scotland": "Escocia", "Haiti": "Haití",
+  // Grupo D
+  "USA": "Estados Unidos", "United States": "Estados Unidos",
+  "Australia": "Australia", "Paraguay": "Paraguay",
+  "Turkey": "Türkiye", "Türkiye": "Türkiye",
+  // Grupo E
+  "Germany": "Alemania", "Ecuador": "Ecuador",
+  "Ivory Coast": "Costa de Marfil", "Côte d'Ivoire": "Costa de Marfil",
+  "Curaçao": "Curazao", "Curacao": "Curazao",
+  // Grupo F
+  "Netherlands": "Países Bajos", "Japan": "Japón",
+  "Tunisia": "Túnez", "Sweden": "Suecia",
+  // Grupo G
+  "Belgium": "Bélgica", "Egypt": "Egipto",
+  "Iran": "Irán", "New Zealand": "Nueva Zelanda",
+  // Grupo H
+  "Spain": "España", "Uruguay": "Uruguay",
+  "Saudi Arabia": "Arabia Saudí", "Cape Verde": "Cabo Verde",
+  // Grupo I
+  "France": "Francia", "Senegal": "Senegal",
+  "Norway": "Noruega", "Iraq": "Irak",
+  // Grupo J
+  "Argentina": "Argentina", "Austria": "Austria",
+  "Algeria": "Argelia", "Jordan": "Jordania",
+  // Grupo K
+  "Portugal": "Portugal", "Colombia": "Colombia",
+  "Uzbekistan": "Uzbekistán", "DR Congo": "R.D. Congo",
+  "Congo DR": "R.D. Congo", "Democratic Republic of Congo": "R.D. Congo",
+  // Grupo L
+  "England": "Inglaterra", "Croatia": "Croacia",
+  "Panama": "Panamá", "Ghana": "Ghana",
 };
-const t = (name) => NAME_MAP[name] || name;
 
-// FIXTURE replicado para lookup (home, away en español → matchId)
-// matchId = "${grupo}-${índice_global_en_FIXTURE}"
-const FIXTURE_LIST = [
-  // A
-  ['México','Sudáfrica'],['Corea del Sur','Rep. Checa'],['Rep. Checa','Sudáfrica'],
-  ['México','Corea del Sur'],['México','Rep. Checa'],['Sudáfrica','Corea del Sur'],
-  // B
-  ['Canadá','Bosnia y H.'],['Catar','Suiza'],['Suiza','Bosnia y H.'],
-  ['Canadá','Catar'],['Suiza','Canadá'],['Bosnia y H.','Catar'],
-  // C
-  ['Brasil','Marruecos'],['Haití','Escocia'],['Brasil','Haití'],
-  ['Escocia','Marruecos'],['Escocia','Brasil'],['Marruecos','Haití'],
-  // D
-  ['Estados Unidos','Paraguay'],['Australia','Türkiye'],['Türkiye','Paraguay'],
-  ['Estados Unidos','Australia'],['Türkiye','Estados Unidos'],['Paraguay','Australia'],
-  // E
-  ['Alemania','Curazao'],['Costa de Marfil','Ecuador'],['Alemania','Costa de Marfil'],
-  ['Ecuador','Curazao'],['Ecuador','Alemania'],['Curazao','Costa de Marfil'],
-  // F
-  ['Países Bajos','Japón'],['Suecia','Túnez'],['Países Bajos','Suecia'],
-  ['Túnez','Japón'],['Túnez','Países Bajos'],['Japón','Suecia'],
-  // G
-  ['Bélgica','Egipto'],['Irán','Nueva Zelanda'],['Bélgica','Irán'],
-  ['Nueva Zelanda','Egipto'],['Nueva Zelanda','Bélgica'],['Egipto','Irán'],
-  // H
-  ['España','Cabo Verde'],['Arabia Saudí','Uruguay'],['España','Arabia Saudí'],
-  ['Uruguay','Cabo Verde'],['Uruguay','España'],['Cabo Verde','Arabia Saudí'],
-  // I
-  ['Francia','Senegal'],['Irak','Noruega'],['Francia','Irak'],
-  ['Noruega','Senegal'],['Noruega','Francia'],['Senegal','Irak'],
-  // J
-  ['Argentina','Argelia'],['Austria','Jordania'],['Argentina','Austria'],
-  ['Jordania','Argelia'],['Jordania','Argentina'],['Argelia','Austria'],
-  // K
-  ['Portugal','R.D. Congo'],['Uzbekistán','Colombia'],['Portugal','Uzbekistán'],
-  ['Colombia','R.D. Congo'],['Colombia','Portugal'],['R.D. Congo','Uzbekistán'],
-  // L
-  ['Inglaterra','Croacia'],['Ghana','Panamá'],['Inglaterra','Ghana'],
-  ['Panamá','Croacia'],['Panamá','Inglaterra'],['Croacia','Ghana'],
+const normalize = (name) => NAME_MAP[name] || name;
+
+// Fixture de la app: lista de partidos con su ID interno
+// Necesario para mapear "Mexico vs South Africa" → ID "A-0"
+const FIXTURE_INDEX = [
+  ["A-0","México","Sudáfrica"],["A-1","Corea del Sur","Rep. Checa"],
+  ["A-2","Rep. Checa","Sudáfrica"],["A-3","México","Corea del Sur"],
+  ["A-4","México","Rep. Checa"],["A-5","Sudáfrica","Corea del Sur"],
+  ["B-6","Canadá","Bosnia y H."],["B-7","Catar","Suiza"],
+  ["B-8","Suiza","Bosnia y H."],["B-9","Canadá","Catar"],
+  ["B-10","Suiza","Canadá"],["B-11","Bosnia y H.","Catar"],
+  ["C-12","Brasil","Marruecos"],["C-13","Haití","Escocia"],
+  ["C-14","Brasil","Haití"],["C-15","Escocia","Marruecos"],
+  ["C-16","Escocia","Brasil"],["C-17","Marruecos","Haití"],
+  ["D-18","Estados Unidos","Paraguay"],["D-19","Australia","Türkiye"],
+  ["D-20","Türkiye","Paraguay"],["D-21","Estados Unidos","Australia"],
+  ["D-22","Türkiye","Estados Unidos"],["D-23","Paraguay","Australia"],
+  ["E-24","Alemania","Curazao"],["E-25","Costa de Marfil","Ecuador"],
+  ["E-26","Alemania","Costa de Marfil"],["E-27","Ecuador","Curazao"],
+  ["E-28","Ecuador","Alemania"],["E-29","Curazao","Costa de Marfil"],
+  ["F-30","Países Bajos","Japón"],["F-31","Suecia","Túnez"],
+  ["F-32","Países Bajos","Suecia"],["F-33","Túnez","Japón"],
+  ["F-34","Túnez","Países Bajos"],["F-35","Japón","Suecia"],
+  ["G-36","Bélgica","Egipto"],["G-37","Irán","Nueva Zelanda"],
+  ["G-38","Bélgica","Irán"],["G-39","Nueva Zelanda","Egipto"],
+  ["G-40","Nueva Zelanda","Bélgica"],["G-41","Egipto","Irán"],
+  ["H-42","España","Cabo Verde"],["H-43","Arabia Saudí","Uruguay"],
+  ["H-44","España","Arabia Saudí"],["H-45","Uruguay","Cabo Verde"],
+  ["H-46","Uruguay","España"],["H-47","Cabo Verde","Arabia Saudí"],
+  ["I-48","Francia","Senegal"],["I-49","Irak","Noruega"],
+  ["I-50","Francia","Irak"],["I-51","Noruega","Senegal"],
+  ["I-52","Noruega","Francia"],["I-53","Senegal","Irak"],
+  ["J-54","Argentina","Argelia"],["J-55","Austria","Jordania"],
+  ["J-56","Argentina","Austria"],["J-57","Jordania","Argelia"],
+  ["J-58","Jordania","Argentina"],["J-59","Argelia","Austria"],
+  ["K-60","Portugal","R.D. Congo"],["K-61","Uzbekistán","Colombia"],
+  ["K-62","Portugal","Uzbekistán"],["K-63","Colombia","R.D. Congo"],
+  ["K-64","Colombia","Portugal"],["K-65","R.D. Congo","Uzbekistán"],
+  ["L-66","Inglaterra","Croacia"],["L-67","Ghana","Panamá"],
+  ["L-68","Inglaterra","Ghana"],["L-69","Panamá","Croacia"],
+  ["L-70","Panamá","Inglaterra"],["L-71","Croacia","Ghana"],
 ];
-const GROUPS = 'AAAAAA BBBBBB CCCCCC DDDDDD EEEEEE FFFFFF GGGGGG HHHHHH IIIIII JJJJJJ KKKKKK LLLLLL'.replace(/ /g,'');
-// lookup: "Equipo1|Equipo2" (sorted) → { matchId, fixtureHome, fixtureAway }
-const FIXTURE_LOOKUP = {};
-FIXTURE_LIST.forEach(([home,away],i)=>{
-  const key=[home,away].sort().join('|');
-  FIXTURE_LOOKUP[key]={matchId:`${GROUPS[i]}-${i}`,fixtureHome:home,fixtureAway:away};
-});
 
-function findGroupMatch(team1es, team2es){
-  const key=[team1es,team2es].sort().join('|');
-  return FIXTURE_LOOKUP[key]||null;
+// Construir lookup: "home|away" → matchId (en ambas direcciones)
+function buildMatchLookup() {
+  const map = {};
+  for (const [id, home, away] of FIXTURE_INDEX) {
+    map[`${home}|${away}`] = id;
+    map[`${away}|${home}`] = id; // para cuando la API invierta home/away
+  }
+  return map;
 }
 
-function groupResult(score, team1es, team2es, fixtureHome){
-  // score.ft = [team1Goals, team2Goals]
-  const [g1,g2]=score.ft||score;
-  const homeGoals = fixtureHome===team1es?g1:g2;
-  const awayGoals = fixtureHome===team1es?g2:g1;
-  return homeGoals>awayGoals?'L':homeGoals<awayGoals?'V':'E';
+// Interpretar score → L/E/V desde perspectiva del home del fixture
+function toCode(homeGoals, awayGoals, fixtureHome, apiHome) {
+  // Si la API tiene los equipos invertidos respecto al fixture, invertimos el resultado
+  const inverted = (fixtureHome !== apiHome);
+  const h = inverted ? awayGoals : homeGoals;
+  const a = inverted ? homeGoals : awayGoals;
+  if (h > a) return "L";
+  if (h < a) return "V";
+  return "E";
 }
 
-function koWinner(score, team1es, team2es){
-  const [g1,g2]=score.ft||score;
-  if(g1!==g2) return g1>g2?team1es:team2es;
-  // AET o penales
-  if(score.aet){const[a1,a2]=score.aet;if(a1!==a2)return a1>a2?team1es:team2es;}
-  if(score.pen){const[p1,p2]=score.pen;if(p1!==p2)return p1>p2?team1es:team2es;}
-  return null;
-}
-
-async function supabaseGet(baseUrl, anonKey, kvKey){
-  const url=`${baseUrl}/rest/v1/kv?key=eq.${encodeURIComponent(kvKey)}&select=value`;
-  const r=await fetch(url,{headers:{apikey:anonKey,Authorization:`Bearer ${anonKey}`}});
-  const rows=await r.json();
-  return rows?.[0]?.value||null;
-}
-
-async function supabaseUpsert(baseUrl, anonKey, kvKey, value){
-  const url=`${baseUrl}/rest/v1/kv`;
-  await fetch(url,{
-    method:'POST',
-    headers:{apikey:anonKey,Authorization:`Bearer ${anonKey}`,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
-    body:JSON.stringify({key:kvKey,value,updated_at:new Date().toISOString()}),
+// ---------- FUENTE 1: worldcup26.ir ----------
+async function fetchFromWC26() {
+  const res = await fetch("https://worldcup26.ir/get/games", {
+    headers: { "Accept": "application/json" },
+    signal: AbortSignal.timeout(8000),
   });
+  if (!res.ok) throw new Error(`worldcup26.ir status ${res.status}`);
+  const data = await res.json();
+  // Estructura esperada: array de partidos con home_team, away_team, home_score, away_score, status
+  const games = Array.isArray(data) ? data : (data.games || data.matches || data.data || []);
+  return games;
 }
 
-export default async function handler(req, res){
-  // Protección: verificar el secreto
-  const secret=req.headers['x-sync-secret']||req.query.secret;
-  if(!process.env.SYNC_SECRET||secret!==process.env.SYNC_SECRET){
-    return res.status(401).json({error:'Unauthorized'});
+// ---------- FUENTE 2: football-data.org (requiere token gratuito) ----------
+async function fetchFromFD() {
+  if (!FD_TOKEN) throw new Error("No FOOTBALL_DATA_TOKEN configured");
+  const res = await fetch(
+    "https://api.football-data.org/v4/competitions/WC/matches?season=2026",
+    {
+      headers: { "X-Auth-Token": FD_TOKEN },
+      signal: AbortSignal.timeout(8000),
+    }
+  );
+  if (!res.ok) throw new Error(`football-data.org status ${res.status}`);
+  const data = await res.json();
+  return (data.matches || []);
+}
+
+// Parsear respuesta de worldcup26.ir
+function parseWC26(games, lookup) {
+  const grupos = {};
+  let synced = 0;
+  for (const g of games) {
+    // Campos posibles según la doc: home_team, away_team, home_score, away_score, status, result
+    const home = normalize(g.home_team || g.team1 || g.homeTeam || "");
+    const away = normalize(g.away_team || g.team2 || g.awayTeam || "");
+    const status = (g.status || g.state || "").toUpperCase();
+    const finished = status === "FINISHED" || status === "FT" || status === "COMPLETED" || status === "PLAYED";
+    if (!finished) continue;
+    const hs = g.home_score ?? g.score1 ?? g.homeScore ?? null;
+    const as_ = g.away_score ?? g.score2 ?? g.awayScore ?? null;
+    if (hs === null || as_ === null) continue;
+    const id = lookup[`${home}|${away}`];
+    if (!id) { console.warn("Sin match para:", home, "vs", away); continue; }
+    const fixtureHome = FIXTURE_INDEX.find(f => f[0] === id)?.[1];
+    grupos[id] = toCode(Number(hs), Number(as_), fixtureHome, home);
+    synced++;
+  }
+  return { grupos, synced };
+}
+
+// Parsear respuesta de football-data.org
+function parseFD(matches, lookup) {
+  const grupos = {};
+  let synced = 0;
+  for (const m of matches) {
+    if (m.status !== "FINISHED") continue;
+    const home = normalize(m.homeTeam?.name || m.homeTeam?.shortName || "");
+    const away = normalize(m.awayTeam?.name || m.awayTeam?.shortName || "");
+    const hs = m.score?.fullTime?.home ?? null;
+    const as_ = m.score?.fullTime?.away ?? null;
+    if (hs === null || as_ === null) continue;
+    const id = lookup[`${home}|${away}`];
+    if (!id) { console.warn("Sin match FD para:", home, "vs", away); continue; }
+    const fixtureHome = FIXTURE_INDEX.find(f => f[0] === id)?.[1];
+    grupos[id] = toCode(Number(hs), Number(as_), fixtureHome, home);
+    synced++;
+  }
+  return { grupos, synced };
+}
+
+// ---------- HANDLER ----------
+export default async function handler(req, res) {
+  // Verificar secret
+  if (req.headers["x-sync-secret"] !== SYNC_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const SUPABASE_URL=process.env.VITE_SUPABASE_URL;
-  const SUPABASE_KEY=process.env.VITE_SUPABASE_ANON_KEY;
-  if(!SUPABASE_URL||!SUPABASE_KEY){
-    return res.status(500).json({error:'Missing Supabase env vars'});
+  const lookup = buildMatchLookup();
+  let grupos = {};
+  let synced = 0;
+  let source = "none";
+
+  // Intentar fuente 1
+  try {
+    const games = await fetchFromWC26();
+    console.log(`worldcup26.ir: ${games.length} partidos recibidos`);
+    ({ grupos, synced } = parseWC26(games, lookup));
+    source = "worldcup26.ir";
+  } catch (e1) {
+    console.warn("worldcup26.ir falló:", e1.message, "— intentando football-data.org");
+    try {
+      const matches = await fetchFromFD();
+      console.log(`football-data.org: ${matches.length} partidos recibidos`);
+      ({ grupos, synced } = parseFD(matches, lookup));
+      source = "football-data.org";
+    } catch (e2) {
+      console.error("Ambas fuentes fallaron:", e2.message);
+      return res.status(502).json({ error: "Ambas fuentes fallaron", details: e2.message });
+    }
   }
 
-  try{
-    // 1) Traer datos de openfootball
-    const r=await fetch('https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json');
-    const data=await r.json();
-    const matches=(data.matches||[]).filter(m=>m.score);
-
-    if(!matches.length){
-      return res.status(200).json({message:'No results yet',synced:0});
-    }
-
-    // 2) Leer resultados actuales de Supabase
-    let results=await supabaseGet(SUPABASE_URL,SUPABASE_KEY,'scalonetta:results');
-    if(!results) results={grupos:{},ko:{},champion:null};
-    if(!results.grupos) results.grupos={};
-    if(!results.ko) results.ko={};
-
-    // 3) Leer config para matchups de eliminación
-    const config=await supabaseGet(SUPABASE_URL,SUPABASE_KEY,'scalonetta:config')||{};
-
-    let synced=0;
-
-    for(const m of matches){
-      const t1es=t(m.team1);
-      const t2es=t(m.team2);
-      const score=m.score;
-      const isGroup=!!m.group;
-
-      if(isGroup){
-        const found=findGroupMatch(t1es,t2es);
-        if(!found) continue;
-        const res=groupResult(score,t1es,t2es,found.fixtureHome);
-        if(results.grupos[found.matchId]!==res){
-          results.grupos[found.matchId]=res;
-          synced++;
-        }
-      } else {
-        // Eliminación: buscar en config.ko
-        if(!config.ko) continue;
-        const winner=koWinner(score,t1es,t2es);
-        if(!winner) continue;
-        for(const [phase,phaseData] of Object.entries(config.ko||{})){
-          for(const mu of (phaseData.matchups||[])){
-            if((mu.teamA===t1es&&mu.teamB===t2es)||(mu.teamA===t2es&&mu.teamB===t1es)){
-              if(!results.ko[phase]) results.ko[phase]={};
-              if(results.ko[phase][mu.id]!==winner){
-                results.ko[phase][mu.id]=winner;
-                synced++;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // 4) Guardar solo si hubo cambios
-    if(synced>0){
-      await supabaseUpsert(SUPABASE_URL,SUPABASE_KEY,'scalonetta:results',results);
-    }
-
-    return res.status(200).json({
-      message: synced>0?`Sincronizados ${synced} resultados`:'Sin cambios nuevos',
-      synced,
-      total_with_scores:matches.length
-    });
-
-  } catch(e){
-    console.error('Sync error:',e);
-    return res.status(500).json({error:e.message});
+  if (synced === 0) {
+    return res.status(200).json({ message: "Sin resultados finalizados todavía", synced: 0, source });
   }
+
+  // Leer resultados actuales y mergear (no pisar lo que ya estaba)
+  const KEY = "scalonetta:results";
+  const { data: existing } = await supabase.from("kv").select("value").eq("key", KEY).single();
+  const current = existing?.value || { grupos: {}, ko: {}, champion: null, bonus: {} };
+
+  // Solo actualizar los que encontramos (no borrar KO ni campeón)
+  const merged = {
+    ...current,
+    grupos: { ...current.grupos, ...grupos },
+  };
+
+  const { error } = await supabase.from("kv").upsert({ key: KEY, value: merged });
+  if (error) {
+    console.error("Supabase error:", error);
+    return res.status(500).json({ error: "DB write failed", details: error.message });
+  }
+
+  console.log(`Sync OK: ${synced} resultados escritos (fuente: ${source})`);
+  return res.status(200).json({ synced, source, grupos });
 }
