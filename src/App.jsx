@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { sget, sset, sdel, slist } from "./db.js";
+import ChallengeSystem from "./components/challenges/ChallengeSystem";
 
 /* ============================================================
    LA SCALONETTA — Prode Mundial 2026
@@ -420,6 +421,7 @@ function AppInner(){
   const [reactions,setReactions]=useState({});
   const [tab,setTab]=useState("hoy");
   const [toast,setToast]=useState("");
+  const [pendingChallenges,setPendingChallenges]=useState(0);
   const [lastUpdated,setLastUpdated]=useState(null);
   const [now,setNow]=useState(Date.now());
   const [liveGames,setLiveGames]=useState([]);
@@ -480,6 +482,19 @@ function AppInner(){
       setSnap(sn);
     }catch{}
     let rx={}; try{ rx = await sget(K.reactions, {})||{}; }catch{}
+    // Desafíos pendientes (badge del tab)
+    try{
+      const chKeys = await slist("scalonetta:challenge:");
+      let pending=0;
+      const myId2 = meRef.current;
+      if(myId2){
+        for(const key of (chKeys||[])){
+          const ch = await sget(key,null);
+          if(ch && ch.challenged===myId2 && ch.challenged_score===null && ch.status==="pending") pending++;
+        }
+      }
+      setPendingChallenges(pending);
+    }catch{}
     setUsers(u); setConfig(cfg); setResults(res); setAllPicks(picks); setReactions(rx);
     setLastUpdated(Date.now());
   },[]);
@@ -598,7 +613,7 @@ function AppInner(){
 
       {/* TABS */}
       <div className="scrollx" style={{ display:"flex", gap:6, padding:"10px 12px", overflowX:"auto", position:"sticky", top:0, background:C.paper, zIndex:5, borderBottom:`1px solid ${C.line}` }}>
-        {[["hoy","Hoy 🔴"],["picks","Mis pronósticos"],["board","Tabla"],["all","Todos los picks"]].concat(isAdmin?[["admin","Admin 👑"]]:[]).map(([k,l])=>(
+        {[["hoy","Hoy 🔴"],["picks","Mis pronósticos"],["board","Tabla"],["all","Todos los picks"],["desafios", pendingChallenges>0 ? `🎮 (${pendingChallenges})` : "🎮"]].concat(isAdmin?[["admin","Admin 👑"]]:[]).map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)} className="disp"
             style={{ whiteSpace:"nowrap", padding:"8px 14px", borderRadius:20, border:"none", cursor:"pointer", fontSize:16,
               background: tab===k?C.ink:"#fff", color: tab===k?"#fff":C.ink, boxShadow: tab===k?"none":`inset 0 0 0 2px ${C.line}` }}>{l}</button>
@@ -611,6 +626,7 @@ function AppInner(){
         {tab==="board" && <BoardTab {...{users,allPicks,results,me,config,snap}}/>}
         {tab==="all"   && <AllPicksTab {...{users,allPicks,results,config,me,reactions,onReact:toggleReaction}}/>}
         {tab==="admin" && isAdmin && <AdminTab {...{config,setConfig,results,setResults,flash,refresh,users,allPicks,me}}/>}
+        {tab==="desafios" && <ChallengeSystem currentUser={me} allUsers={Object.keys(users)}/>}
       </div>
 
       {toast && <div className="disp" style={{ position:"fixed", bottom:18, left:"50%", transform:"translateX(-50%)", background:C.ink, color:"#fff", padding:"10px 18px", borderRadius:30, fontSize:16, boxShadow:"0 10px 30px rgba(0,0,0,.3)", zIndex:50 }}>{toast}</div>}
