@@ -1,0 +1,28 @@
+// Goles en Mundiales - datos verificados hasta Qatar 2022
+// Mezcla deliberada de argentinos, rivales históricos y sorpresas
+export const HL_PLAYERS = [
+  { name: "Messi", country: "🇦🇷 Argentina", goals: 13, emoji: "🐐", fun: "El más grande" },
+  { name: "Klose", country: "🇩🇪 Alemania", goals: 16, emoji: "🏆", fun: "Récord histórico" },
+  { name: "Ronaldo R9", country: "🇧🇷 Brasil", goals: 15, emoji: "⚽", fun: "El verdadero R9" },
+  { name: "Batistuta", country: "🇦🇷 Argentina", goals: 10, emoji: "🦁", fun: "Batigol eterno" },
+  { name: "Mbappé", country: "🇫🇷 Francia", goals: 12, emoji: "⚡", fun: "Casi arruina todo" },
+  { name: "Maradona", country: "🇦🇷 Argentina", goals: 8, emoji: "👑", fun: "El Diego" },
+  { name: "Pelé", country: "🇧🇷 Brasil", goals: 12, emoji: "🌟", fun: "El rey" },
+  { name: "Thomas Müller", country: "🇩🇪 Alemania", goals: 10, emoji: "🎯", fun: "Raumdeuter" },
+  { name: "Lineker", country: "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra", goals: 10, emoji: "🦁", fun: "La mano de Dios lo paró" },
+  { name: "Just Fontaine", country: "🇫🇷 Francia", goals: 13, emoji: "📊", fun: "13 goles en UN mundial (1958)" },
+  { name: "Kempes", country: "🇦🇷 Argentina", goals: 6, emoji: "💪", fun: "El Matador del '78" },
+  { name: "Higuaín", country: "🇦🇷 Argentina", goals: 5, emoji: "😬", fun: "Los recuerdos duelen" },
+  { name: "Götze", country: "🇩🇪 Alemania", goals: 3, emoji: "💔", fun: "Sólo un gol importó" },
+  { name: "Zidane", country: "🇫🇷 Francia", goals: 5, emoji: "🎩", fun: "Cabezazo incluido" },
+  { name: "Ronaldo CR7", country: "🇵🇹 Portugal", goals: 8, emoji: "💅", fun: "Mismo que Maradona 👀" },
+  { name: "Neymar", country: "🇧🇷 Brasil", goals: 8, emoji: "🎭", fun: "Caídas incluidas" },
+  { name: "Gerd Müller", country: "🇩🇪 Alemania", goals: 14, emoji: "💥", fun: "El Bombardero" },
+  { name: "Lato", country: "🇵🇱 Polonia", goals: 10, emoji: "⚽", fun: "¿Quién? Exacto." },
+  { name: "Cubillas", country: "🇵🇪 Perú", goals: 10, emoji: "⚽", fun: "Leyenda peruana olvidada" },
+  { name: "Kane", country: "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra", goals: 6, emoji: "🎯", fun: "Todos en Rusia 2018" },
+  { name: "Salah", country: "🇪🇬 Egipto", goals: 1, emoji: "😅", fun: "No es su torneo" },
+  { name: "Mbappe (solo Francia 2018)", country: "🇫🇷 Francia", goals: 4, emoji: "🔢", fun: "Era un pibito de 19" },
+  { name: "Lewandowski", country: "🇵🇱 Polonia", goals: 3, emoji: "⚽", fun: "Excelente en clubs, no tanto acá" },
+  { name: "Suárez", country: "🇺🇾 Uruguay", goals: 7, emoji: "😬", fun: "Sin la mano acá" },
+]
