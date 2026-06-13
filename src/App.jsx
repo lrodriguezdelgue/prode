@@ -179,6 +179,7 @@ const K = {
   picks: (u) => `scalonetta:picks:${u}`,
   picksPrefix: "scalonetta:picks:",
   snap: "scalonetta:ranksnap",
+  reactions: "scalonetta:reactions",
 };
 
 // ---------- ESTILO ----------
@@ -416,7 +417,8 @@ function AppInner(){
   const [results,setResults]=useState({grupos:{},ko:{},champion:null});
   const [allPicks,setAllPicks]=useState({});
   const [snap,setSnap]=useState(null);
-  const [tab,setTab]=useState("picks");
+  const [reactions,setReactions]=useState({});
+  const [tab,setTab]=useState("hoy");
   const [toast,setToast]=useState("");
   const [lastUpdated,setLastUpdated]=useState(null);
   const [now,setNow]=useState(Date.now());
@@ -477,7 +479,8 @@ function AppInner(){
       }
       setSnap(sn);
     }catch{}
-    setUsers(u); setConfig(cfg); setResults(res); setAllPicks(picks);
+    let rx={}; try{ rx = await sget(K.reactions, {})||{}; }catch{}
+    setUsers(u); setConfig(cfg); setResults(res); setAllPicks(picks); setReactions(rx);
     setLastUpdated(Date.now());
   },[]);
 
@@ -523,6 +526,28 @@ function AppInner(){
     if(!check){ flash("⚠️ Guardado no confirmado. Probá recargar."); return false; }
     flash("Guardado ✓");
     return true;
+  };
+
+  // reaccionar a un pick (toggle). Lectura-modificación-escritura contra el store
+  // para no pisar reacciones de otros (clave compartida).
+  const toggleReaction = async (targetId, emoji) => {
+    if(!me) return;
+    // optimista
+    setReactions(prev=>{
+      const next=JSON.parse(JSON.stringify(prev||{}));
+      const t=next[targetId]=next[targetId]||{}; const arr=t[emoji]=t[emoji]||[];
+      const i=arr.indexOf(me); if(i>=0) arr.splice(i,1); else arr.push(me);
+      if(arr.length===0) delete t[emoji]; if(t&&Object.keys(t).length===0) delete next[targetId];
+      return next;
+    });
+    try{
+      const fresh = await sget(K.reactions, {}) || {};
+      const t=fresh[targetId]=fresh[targetId]||{}; const arr=t[emoji]=t[emoji]||[];
+      const i=arr.indexOf(me); if(i>=0) arr.splice(i,1); else arr.push(me);
+      if(arr.length===0) delete t[emoji]; if(Object.keys(t).length===0) delete fresh[targetId];
+      await sset(K.reactions, fresh);
+      setReactions(fresh);
+    }catch{}
   };
 
   if(!ready) return <><Style/><div className="scl" style={{minHeight:"100vh",display:"grid",placeItems:"center",background:C.paper}}><div className="disp" style={{fontSize:30,color:C.celesteDeep}}>Cargando…</div></div></>;
@@ -573,7 +598,7 @@ function AppInner(){
 
       {/* TABS */}
       <div className="scrollx" style={{ display:"flex", gap:6, padding:"10px 12px", overflowX:"auto", position:"sticky", top:0, background:C.paper, zIndex:5, borderBottom:`1px solid ${C.line}` }}>
-        {[["picks","Mis pronósticos"],["board","Tabla"],["all","Todos los picks"]].concat(isAdmin?[["admin","Admin 👑"]]:[]).map(([k,l])=>(
+        {[["hoy","Hoy 🔴"],["picks","Mis pronósticos"],["board","Tabla"],["all","Todos los picks"]].concat(isAdmin?[["admin","Admin 👑"]]:[]).map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)} className="disp"
             style={{ whiteSpace:"nowrap", padding:"8px 14px", borderRadius:20, border:"none", cursor:"pointer", fontSize:16,
               background: tab===k?C.ink:"#fff", color: tab===k?"#fff":C.ink, boxShadow: tab===k?"none":`inset 0 0 0 2px ${C.line}` }}>{l}</button>
@@ -581,9 +606,10 @@ function AppInner(){
       </div>
 
       <div style={{ maxWidth:760, margin:"0 auto", padding:"14px 12px 60px" }}>
+        {tab==="hoy"   && <HoyTab {...{users,allPicks,results,config,me,liveGames,now,flash}}/>}
         {tab==="picks" && <PicksTab {...{config,myPicks,savePick,gruposLocked,bonusLocked,flash}}/>}
         {tab==="board" && <BoardTab {...{users,allPicks,results,me,config,snap}}/>}
-        {tab==="all"   && <AllPicksTab {...{users,allPicks,results,config,me}}/>}
+        {tab==="all"   && <AllPicksTab {...{users,allPicks,results,config,me,reactions,onReact:toggleReaction}}/>}
         {tab==="admin" && isAdmin && <AdminTab {...{config,setConfig,results,setResults,flash,refresh,users,allPicks,me}}/>}
       </div>
 
@@ -837,7 +863,7 @@ function TriviaBoard({ users, allPicks, results, me }){
 }
 
 // ---------- TAB: TODOS LOS PICKS ----------
-function AllPicksTab({ users, allPicks, results, config, me }){
+function AllPicksTab({ users, allPicks, results, config, me, reactions, onReact }){
   const ids=Object.keys(users);
   const [view,setView]=useState("grupos");
   const gruposOpen = isPast(config.locks.grupos); // destapado al cerrar
@@ -856,11 +882,14 @@ function AllPicksTab({ users, allPicks, results, config, me }){
 
       {view==="champ" && (
         <div style={{ background:"#fff", borderRadius:14, padding:14 }}>
-          <div style={{ fontSize:12, color:C.mute, marginBottom:8 }}>El campeón es visible para todos desde que cada uno lo carga. 👀</div>
+          <div style={{ fontSize:12, color:C.mute, marginBottom:8 }}>El campeón es visible para todos desde que cada uno lo carga. 👀 Tocá un emoji para bancar o cargar el pick de alguien.</div>
           {ids.map(uid=>(
-            <div key={uid} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderTop:`1px solid ${C.paper}` }}>
-              <b>{users[uid].name||uid}{uid===me?" (vos)":""}</b>
-              <span>{allPicks[uid]?.champion? `${flagOf(allPicks[uid].champion)} ${allPicks[uid].champion}`:"—"}</span>
+            <div key={uid} style={{ padding:"10px 0", borderTop:`1px solid ${C.paper}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <b>{users[uid].name||uid}{uid===me?" (vos)":""}</b>
+                <span>{allPicks[uid]?.champion? `${flagOf(allPicks[uid].champion)} ${allPicks[uid].champion}`:"—"}</span>
+              </div>
+              {allPicks[uid]?.champion && <Reactions targetId={`champ:${uid}`} reactions={reactions} me={me} onReact={onReact}/>}
             </div>
           ))}
         </div>
@@ -973,6 +1002,275 @@ const cellSticky={ ...cell, position:"sticky", left:0, background:"#fff", zIndex
 const cellHSticky={ ...cellH, position:"sticky", left:0, background:C.paper, zIndex:3, textAlign:"left", minWidth:120, boxShadow:`2px 0 5px -2px rgba(12,30,51,.2)` };
 const tableSticky={ borderCollapse:"separate", borderSpacing:0, width:"100%", fontSize:12, background:"#fff", borderRadius:10 };
 function codeLabelShort(code,m){ return code==="L"?m.home.slice(0,3):code==="V"?m.away.slice(0,3):"X"; }
+
+// ============================================================
+//  HOY / EN VIVO / JORNADA  (proyección casi-viva + card WhatsApp + reacciones)
+// ============================================================
+
+// fecha "YYYY-MM-DD" en horario Argentina (para agrupar "hoy")
+function argDateKey(d){ try{ return new Date(d).toLocaleDateString("en-CA",{timeZone:"America/Argentina/Buenos_Aires"}); }catch{ return ""; } }
+
+// matchea un partido en vivo (worldcup26.ir → nombres ya en español) con el FIXTURE,
+// en cualquier orientación local/visitante.
+function findLiveGM(g){
+  const direct = GROUP_MATCHES.find(m=>m.home===g.home && m.away===g.away);
+  if(direct) return { gm:direct, flip:false };
+  const rev = GROUP_MATCHES.find(m=>m.home===g.away && m.away===g.home);
+  if(rev) return { gm:rev, flip:true };
+  return null;
+}
+// arma un mapa de resultados PROVISORIOS de grupos sumando los partidos en vivo
+// (solo fase de grupos; el marcador define L/E/V provisorio). No toca nada guardado.
+function liveProvisional(liveGames, results){
+  const prov = { ...(results?.grupos||{}) };
+  const provIds = [];
+  for(const g of (liveGames||[])){
+    const f = findLiveGM(g); if(!f) continue;
+    let code;
+    if(g.hs===g.as) code="E";
+    else if(g.hs>g.as) code = f.flip ? "V" : "L";
+    else code = f.flip ? "L" : "V";
+    prov[f.gm.id]=code; provIds.push(f.gm.id);
+  }
+  return { prov, provIds, liveGm: (liveGames||[]).map(g=>({g,f:findLiveGM(g)})).filter(x=>x.f) };
+}
+// partidos del FIXTURE cuyo kickoff cae HOY (hora ARG)
+function matchesTodayARG(now){
+  const today = argDateKey(now);
+  return GROUP_MATCHES.filter(m=>argDateKey(m.kickoff)===today)
+    .sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
+}
+// próximos partidos (si hoy no hay nada)
+function nextMatchesARG(now){
+  return GROUP_MATCHES.filter(m=>Date.parse(m.kickoff)>now)
+    .sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff)).slice(0,4);
+}
+
+const EMOJI_REACTIONS = ["😂","🔥","🤡","💀","👏"];
+function Reactions({ targetId, reactions, me, onReact }){
+  const r = reactions?.[targetId] || {};
+  return (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:6 }}>
+      {EMOJI_REACTIONS.map(e=>{
+        const arr = r[e]||[]; const n=arr.length; const mine=arr.includes(me);
+        return (
+          <button key={e} onClick={()=>onReact(targetId,e)} className="btnp"
+            style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px", borderRadius:20, cursor:"pointer",
+              border: mine?`2px solid ${C.celesteDeep}`:`2px solid ${C.line}`, background: mine?C.celeste:"#fff",
+              color: mine?"#fff":C.ink, fontSize:14, fontWeight:800, lineHeight:1 }}>
+            <span>{e}</span>{n>0 && <span style={{ fontSize:12 }}>{n}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- TAB: HOY ----------
+function HoyTab({ users, allPicks, results, config, me, liveGames, now, flash }){
+  const ids = Object.keys(users||{});
+  const gruposOpen = isPast(config.locks.grupos);
+  const realRows = useMemo(()=>computeScores(users,allPicks,results),[users,allPicks,results]);
+  const { prov, provIds, liveGm } = useMemo(()=>liveProvisional(liveGames,results),[liveGames,results]);
+  const projRows = useMemo(()=>computeScores(users,allPicks,{...results,grupos:prov}),[users,allPicks,results,prov]);
+  const hasProjection = provIds.length>0 && ids.length>0;
+
+  const realPts = {}; realRows.forEach(r=>{ realPts[r.uid]=r.pts; });
+  const realPos = {}; realRows.forEach((r,i)=>{ realPos[r.uid]=i+1; });
+
+  const today = matchesTodayARG(now);
+  const withRes = today.filter(m=>results?.grupos?.[m.id]);
+  // ranking de la jornada (puntos sumados hoy)
+  const jor = ids.map(uid=>{
+    let p=0,h=0;
+    for(const m of withRes){ const pk=allPicks[uid]?.grupos?.[m.id]; if(pk&&pk===results.grupos[m.id]){ p+=PTS.grupo; h++; } }
+    return { uid, name:users[uid].name||uid, p, h };
+  }).sort((a,b)=>b.p-a.p||a.name.localeCompare(b.name));
+  const jorMax = jor.length?jor[0].p:0;
+  const destacados = jorMax>0 ? jor.filter(j=>j.p===jorMax) : [];
+
+  const medals=["🥇","🥈","🥉"];
+
+  return (
+    <div className="card">
+      {/* PROYECCIÓN EN VIVO */}
+      {hasProjection ? (
+        <div style={{ background:"#fff", borderRadius:16, padding:16, marginBottom:14, boxShadow:`0 1px 0 ${C.line}`, border:`2px solid ${C.celeste}` }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+            <span style={{ width:9, height:9, borderRadius:"50%", background:"#E53935", display:"inline-block", animation:"pulse 1.2s ease infinite" }}/>
+            <div className="disp" style={{ fontSize:24, color:C.celesteDeep }}>Proyección en vivo</div>
+          </div>
+          <div style={{ fontSize:12, color:C.mute, marginBottom:10 }}>Si los partidos en curso terminan como van ahora, la tabla quedaría así. (Provisorio — cambia con cada gol.)</div>
+          {liveGm.map(({g},i)=>(
+            <div key={i} style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>
+              {flagOf(g.home)} {g.home} <b style={{color:C.solDeep}}>{g.hs}</b>–<b style={{color:C.solDeep}}>{g.as}</b> {g.away} {flagOf(g.away)}
+            </div>
+          ))}
+          <div style={{ marginTop:10 }}>
+            {projRows.map((r,i)=>{
+              const dPts = r.pts - (realPts[r.uid]??r.pts);
+              const dPos = (realPos[r.uid]??(i+1)) - (i+1); // + sube, - baja
+              return (
+                <div key={r.uid} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0", borderTop:i?`1px solid ${C.paper}`:"none",
+                  background: r.uid===me?"rgba(116,172,223,.12)":"transparent", borderRadius:8 }}>
+                  <div className="disp" style={{ fontSize:18, width:26, textAlign:"center", color:C.mute }}>{medals[i]||i+1}</div>
+                  <div style={{ flex:1, minWidth:0, fontWeight:r.uid===me?800:600 }}>
+                    {r.name}{r.uid===me?" (vos)":""}
+                    {dPos>0 && <span style={{ color:C.good, fontSize:11, fontWeight:800, marginLeft:6 }}>▲{dPos}</span>}
+                    {dPos<0 && <span style={{ color:C.bad, fontSize:11, fontWeight:800, marginLeft:6 }}>▼{-dPos}</span>}
+                  </div>
+                  {dPts>0 && <span style={{ color:C.good, fontSize:12, fontWeight:800 }}>+{dPts}</span>}
+                  <div className="disp" style={{ fontSize:22, color:r.uid===me?C.celesteDeep:C.solDeep, minWidth:30, textAlign:"right" }}>{r.pts}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ background:"#fff", borderRadius:16, padding:16, marginBottom:14, boxShadow:`0 1px 0 ${C.line}`, textAlign:"center", color:C.mute }}>
+          <div style={{ fontSize:30, marginBottom:4 }}>⚽</div>
+          <div style={{ fontWeight:700 }}>No hay partidos de grupos en vivo ahora.</div>
+          <div style={{ fontSize:12, marginTop:4 }}>Cuando ruede la pelota, acá vas a ver cómo se mueve la tabla en tiempo casi-real.</div>
+        </div>
+      )}
+
+      {/* PARTIDOS DE HOY */}
+      <div style={{ background:"#fff", borderRadius:16, padding:16, marginBottom:14, boxShadow:`0 1px 0 ${C.line}` }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <div className="disp" style={{ fontSize:24, color:C.celesteDeep }}>Partidos de hoy</div>
+          {(withRes.length>0 || today.length>0) && <Btn kind="sol" style={{padding:"8px 12px",fontSize:13}} onClick={async()=>{ const ok=await shareJornadaCard(users,allPicks,results,now); flash(ok?"Card lista 📲":"No se pudo generar la card"); }}>📲 Card</Btn>}
+        </div>
+        {today.length===0 ? (
+          <>
+            <div style={{ fontSize:13, color:C.mute, marginBottom:8 }}>Hoy no hay partidos. Próximos:</div>
+            {nextMatchesARG(now).map(m=>(
+              <div key={m.id} style={{ padding:"7px 0", borderTop:`1px solid ${C.paper}` }}>
+                <div style={{ fontSize:13, fontWeight:700 }}>{m.homeFlag} {m.home} <span style={{color:C.mute}}>vs</span> {m.awayFlag} {m.away}</div>
+                <div style={{ fontSize:11, color:C.mute }}>🗓️ {fmtKick(m.kickoff)}</div>
+              </div>
+            ))}
+          </>
+        ) : today.map(m=>{
+          const res = results?.grupos?.[m.id];
+          const liveMatch = liveGm.find(({f})=>f.gm.id===m.id);
+          // % por opción si grupos ya cerró
+          let statTxt="";
+          if(gruposOpen){
+            const c={L:0,E:0,V:0}; let tot=0;
+            for(const uid of ids){ const p=allPicks[uid]?.grupos?.[m.id]; if(p){c[p]++;tot++;} }
+            if(tot){ const pct=(n)=>Math.round(n/tot*100); statTxt=`${m.home.slice(0,3)} ${pct(c.L)}% · X ${pct(c.E)}% · ${m.away.slice(0,3)} ${pct(c.V)}%`; }
+          }
+          const hits = res ? ids.filter(uid=>allPicks[uid]?.grupos?.[m.id]===res).length : 0;
+          return (
+            <div key={m.id} style={{ padding:"9px 0", borderTop:`1px solid ${C.paper}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                <div style={{ fontSize:13, fontWeight:700 }}>{m.homeFlag} {m.home} <span style={{color:C.mute}}>vs</span> {m.awayFlag} {m.away}</div>
+                {liveMatch ? <Pill bg="#E53935">{liveMatch.g.hs}–{liveMatch.g.as} 🔴</Pill>
+                  : res ? <Pill bg={C.good}>{res==="L"?`Ganó ${m.home.slice(0,3)}`:res==="V"?`Ganó ${m.away.slice(0,3)}`:"Empate"}</Pill>
+                  : <span style={{ fontSize:11, color:C.mute }}>{fmtKick(m.kickoff).replace(" hs (ARG)","")}</span>}
+              </div>
+              {statTxt && <div style={{ fontSize:11, color:C.mute, marginTop:3 }}>{statTxt}{res?` · ${hits} acertaron`:""}</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* RANKING DE LA JORNADA */}
+      {withRes.length>0 && (
+        <div style={{ background:"#fff", borderRadius:16, padding:16, boxShadow:`0 1px 0 ${C.line}` }}>
+          <div className="disp" style={{ fontSize:24, color:C.solDeep, marginBottom:4 }}>Ranking de la jornada</div>
+          <div style={{ fontSize:12, color:C.mute, marginBottom:10 }}>Puntos sumados hoy ({withRes.length} {withRes.length===1?"partido":"partidos"} con resultado).</div>
+          {destacados.length>0 && (
+            <div style={{ background:`linear-gradient(135deg,${C.sol},${C.solDeep})`, color:"#3a2c00", borderRadius:12, padding:"9px 12px", marginBottom:10, fontWeight:800, fontSize:14 }}>
+              🎯 Figura del día: {destacados.map(d=>d.name).join(" + ")} (+{jorMax} pts)
+            </div>
+          )}
+          {jor.map((j,i)=>(
+            <div key={j.uid} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0", borderTop:i?`1px solid ${C.paper}`:"none" }}>
+              <div className="disp" style={{ fontSize:16, width:22, textAlign:"center", color:C.mute }}>{i+1}</div>
+              <div style={{ flex:1, fontWeight:j.uid===me?800:600, color:j.uid===me?C.celesteDeep:C.ink }}>{j.name}{j.uid===me?" (vos)":""}</div>
+              <div style={{ fontSize:12, color:C.mute }}>{j.h} ac.</div>
+              <div className="disp" style={{ fontSize:20, color:C.solDeep, minWidth:34, textAlign:"right" }}>+{j.p}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- CARD DE JORNADA PARA WHATSAPP (imagen PNG vía canvas) ----------
+async function shareJornadaCard(users, allPicks, results, now){
+  try{
+    const ids = Object.keys(users||{});
+    const today = matchesTodayARG(now).slice(0,7);
+    const withRes = today.filter(m=>results?.grupos?.[m.id]);
+    const jor = ids.map(uid=>{ let p=0,h=0; for(const m of withRes){ const pk=allPicks[uid]?.grupos?.[m.id]; if(pk&&pk===results.grupos[m.id]){p+=PTS.grupo;h++;} } return {name:users[uid].name||uid,p,h}; })
+      .sort((a,b)=>b.p-a.p||a.name.localeCompare(b.name)).slice(0,6);
+
+    const W=1080, H=1350, cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    const x=cv.getContext("2d");
+    x.fillStyle="#F4F8FC"; x.fillRect(0,0,W,H);
+    // header
+    const grad=x.createLinearGradient(0,0,W,280); grad.addColorStop(0,"#74ACDF"); grad.addColorStop(1,"#2F6FB0");
+    x.fillStyle=grad; x.fillRect(0,0,W,280);
+    x.fillStyle="#fff"; x.textAlign="center";
+    x.font="900 88px Arial"; x.fillText("LA SCALONETTA",W/2,130);
+    x.font="700 34px Arial";
+    const fecha=new Date(now).toLocaleDateString("es-AR",{weekday:"long",day:"2-digit",month:"long",timeZone:"America/Argentina/Buenos_Aires"});
+    x.fillText("JORNADA · "+fecha.toUpperCase(),W/2,200);
+    x.font="700 28px Arial"; x.fillStyle="rgba(255,255,255,.85)";
+    x.fillText("PRODE · MUNDIAL 2026 🏆",W/2,245);
+
+    let y=360; x.textAlign="left";
+    // resultados de hoy
+    x.fillStyle="#2F6FB0"; x.font="800 44px Arial"; x.fillText("Resultados de hoy",70,y); y+=20;
+    x.fillStyle="#0C1E33"; x.font="700 34px Arial";
+    if(withRes.length===0){
+      y+=50; x.fillStyle="#6B8299"; x.font="600 30px Arial";
+      x.fillText("Todavía sin resultados cargados hoy.",70,y); y+=20;
+    } else {
+      for(const m of withRes){
+        y+=58; const res=results.grupos[m.id];
+        const txt = `${m.homeFlag} ${m.home}  vs  ${m.away} ${m.awayFlag}`;
+        x.fillStyle="#0C1E33"; x.font="700 32px Arial"; x.fillText(txt,70,y);
+        const tag = res==="L"?`✓ ${m.home}`:res==="V"?`✓ ${m.away}`:"Empate";
+        x.fillStyle=res==="E"?"#6B8299":"#1B9E5A"; x.font="800 28px Arial"; x.textAlign="right";
+        x.fillText(tag,W-70,y); x.textAlign="left";
+      }
+    }
+    y+=70;
+    // ranking de la jornada
+    x.fillStyle="#B97E06"; x.font="800 44px Arial"; x.fillText("Ranking de la jornada",70,y); y+=14;
+    const medals=["🥇","🥈","🥉"];
+    if(jor.length===0 || jor.every(j=>j.p===0)){
+      y+=58; x.fillStyle="#6B8299"; x.font="600 30px Arial"; x.fillText("Sin puntos sumados hoy.",70,y);
+    } else {
+      for(let i=0;i<jor.length;i++){
+        y+=62; const j=jor[i];
+        x.fillStyle="#0C1E33"; x.font="800 34px Arial";
+        x.fillText(`${medals[i]||(i+1)+"."}  ${j.name}`,70,y);
+        x.fillStyle="#B97E06"; x.font="900 34px Arial"; x.textAlign="right";
+        x.fillText(`+${j.p} pts`,W-70,y); x.textAlign="left";
+      }
+    }
+    // footer
+    x.fillStyle="#2F6FB0"; x.fillRect(0,H-110,W,110);
+    x.fillStyle="#fff"; x.textAlign="center"; x.font="700 30px Arial";
+    let host=""; try{ host=location.host; }catch{}
+    x.fillText("Sumate 👉 "+host,W/2,H-45);
+
+    const blob = await new Promise(res=>cv.toBlob(res,"image/png"));
+    if(!blob) return false;
+    const file = new File([blob],"scalonetta-jornada.png",{type:"image/png"});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{ await navigator.share({ files:[file], text:"🏆 La Scalonetta · Jornada" }); return true; }catch{ /* cancelado: cae a descarga */ }
+    }
+    const url=URL.createObjectURL(blob); const a=document.createElement("a");
+    a.href=url; a.download="scalonetta-jornada.png"; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    return true;
+  }catch{ return false; }
+}
 
 // ---------- TAB: ADMIN ----------
 function AdminTab({ config, setConfig, results, setResults, flash, refresh, users, allPicks, me }){
