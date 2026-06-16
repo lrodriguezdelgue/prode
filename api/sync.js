@@ -1,13 +1,13 @@
 // api/sync.js — La Scalonetta · Sync de resultados
-// Fuente: worldcup26.ir/get/games (gratis, sin key)
-// Fallback: football-data.org (token gratuito opcional)
+// Fuente primaria: openfootball/worldcup.json (raw.githubusercontent.com)
+// Fallback:        football-data.org (token gratuito opcional)
 
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL  = process.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-const SYNC_SECRET   = process.env.SYNC_SECRET;
-const FD_TOKEN      = process.env.FOOTBALL_DATA_TOKEN; // opcional
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const SYNC_SECRET  = process.env.SYNC_SECRET;
+const FD_TOKEN     = process.env.FOOTBALL_DATA_TOKEN; // opcional
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -88,12 +88,11 @@ function buildLookup() {
   const map = {};
   for (const [id, home, away] of FIXTURE_INDEX) {
     map[`${home}|${away}`] = { id, fixtureHome: home };
-    map[`${away}|${home}`] = { id, fixtureHome: home }; // invertido
+    map[`${away}|${home}`] = { id, fixtureHome: home };
   }
   return map;
 }
 
-// score → L/E/V desde perspectiva del home del fixture
 function toCode(homeGoals, awayGoals, fixtureHome, apiHome) {
   const inverted = fixtureHome !== apiHome;
   const h = inverted ? awayGoals : homeGoals;
@@ -103,35 +102,36 @@ function toCode(homeGoals, awayGoals, fixtureHome, apiHome) {
   return "E";
 }
 
-// ---------- FUENTE 1: worldcup26.ir ----------
-async function fetchWC26() {
-  const res = await fetch("https://worldcup26.ir/get/games", {
-    headers: { "Accept": "application/json" },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`worldcup26.ir HTTP ${res.status}`);
+// ---------- FUENTE 1: openfootball (raw.githubusercontent.com) ----------
+async function fetchOpenfootball() {
+  const res = await fetch(
+    "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json",
+    { signal: AbortSignal.timeout(10000) }
+  );
+  if (!res.ok) throw new Error(`openfootball HTTP ${res.status}`);
   const data = await res.json();
-  const games = Array.isArray(data) ? data : (data.games || data.matches || data.data || []);
-  return games;
+  return data.matches || [];
 }
 
-function parseWC26(games, lookup) {
+function parseOpenfootball(matches, lookup) {
   const grupos = {};
   let synced = 0;
-  for (const g of games) {
-    // "finished" viene como string "TRUE"/"FALSE" o boolean
-    const fin = g.finished === true || String(g.finished).toUpperCase() === "TRUE";
-    if (!fin) continue;
-    const hs = Number(g.home_score);
-    const as_ = Number(g.away_score);
-    if (isNaN(hs) || isNaN(as_)) continue;
-    const home = normalize(g.home_team_name_en || g.home_team || "");
-    const away = normalize(g.away_team_name_en || g.away_team || "");
+  const warnings = [];
+  for (const m of matches) {
+    const ft = m.score?.ft;
+    if (!Array.isArray(ft) || ft.length < 2) continue; // sin resultado todavía
+    const hs = ft[0], as_ = ft[1];
+    const home = normalize(m.team1);
+    const away = normalize(m.team2);
     const match = lookup[`${home}|${away}`];
-    if (!match) { console.warn("Sin match para:", home, "vs", away); continue; }
+    if (!match) {
+      warnings.push(`Sin match: "${m.team1}" vs "${m.team2}" → "${home}" vs "${away}"`);
+      continue;
+    }
     grupos[match.id] = toCode(hs, as_, match.fixtureHome, home);
     synced++;
   }
+  if (warnings.length) console.warn("Openfootball warnings:", warnings);
   return { grupos, synced };
 }
 
@@ -140,7 +140,7 @@ async function fetchFD() {
   if (!FD_TOKEN) throw new Error("No FOOTBALL_DATA_TOKEN");
   const res = await fetch(
     "https://api.football-data.org/v4/competitions/WC/matches?season=2026",
-    { headers: { "X-Auth-Token": FD_TOKEN }, signal: AbortSignal.timeout(8000) }
+    { headers: { "X-Auth-Token": FD_TOKEN }, signal: AbortSignal.timeout(10000) }
   );
   if (!res.ok) throw new Error(`football-data.org HTTP ${res.status}`);
   const data = await res.json();
@@ -167,20 +167,34 @@ function parseFD(matches, lookup) {
 
 // ---------- HANDLER ----------
 export default async function handler(req, res) {
-  if (req.headers["x-sync-secret"] !== SYNC_SECRET) {
+  // Auth: acepta header secreto (cron/Actions) O query param client=1 (front)
+  const fromCron   = req.headers["x-sync-secret"] === SYNC_SECRET;
+  const fromClient = req.query?.client === "1";
+  if (!fromCron && !fromClient) {
     return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  // Cache breve para llamadas del front: si se llamó hace <90s, devolver datos actuales sin re-fetch
+  if (fromClient) {
+    const KEY = "scalonetta:results";
+    const { data: existing } = await supabase.from("kv").select("value").eq("key", KEY).single();
+    const current = existing?.value || { grupos: {}, ko: {}, champion: null, bonus: {} };
+    const lastSync = current._lastSync || 0;
+    if (Date.now() - lastSync < 90_000) {
+      return res.status(200).json({ synced: 0, source: "cache", cached: true });
+    }
   }
 
   const lookup = buildLookup();
   let grupos = {}, synced = 0, source = "none";
 
   try {
-    const games = await fetchWC26();
-    console.log(`worldcup26.ir: ${games.length} partidos`);
-    ({ grupos, synced } = parseWC26(games, lookup));
-    source = "worldcup26.ir";
+    const matches = await fetchOpenfootball();
+    console.log(`openfootball: ${matches.length} partidos`);
+    ({ grupos, synced } = parseOpenfootball(matches, lookup));
+    source = "openfootball";
   } catch (e1) {
-    console.warn("worldcup26.ir falló:", e1.message, "→ intentando football-data.org");
+    console.warn("openfootball falló:", e1.message, "→ intentando football-data.org");
     try {
       const matches = await fetchFD();
       ({ grupos, synced } = parseFD(matches, lookup));
@@ -194,7 +208,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ message: "Sin resultados finalizados todavía", synced: 0, source });
   }
 
-  // Leer y mergear con lo existente
+  // Leer, mergear y escribir
   const KEY = "scalonetta:results";
   const { data: existing } = await supabase.from("kv").select("value").eq("key", KEY).single();
   const current = existing?.value || { grupos: {}, ko: {}, champion: null, bonus: {} };
@@ -202,6 +216,7 @@ export default async function handler(req, res) {
   const merged = {
     ...current,
     grupos: { ...current.grupos, ...grupos },
+    _lastSync: Date.now(),
   };
 
   const { error } = await supabase.from("kv").upsert({ key: KEY, value: merged });
