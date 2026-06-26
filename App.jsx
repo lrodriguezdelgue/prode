@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { sget, sset, sdel, slist } from "./db.js";
-import ChallengeSystem from "./components/challenges/ChallengeSystem";
+const ChallengeSystem = React.lazy(() => import("./components/challenges/ChallengeSystem"));
 
 /* ============================================================
    LA SCALONETTA — Prode Mundial 2026
@@ -522,25 +522,6 @@ function AppInner(){
     return ()=>{ alive=false; clearInterval(iv2); document.removeEventListener("visibilitychange",onVis2); };
   },[]);
 
-  // SYNC desde el cliente: dispara /api/sync?client=1 al abrir y cada 5 min.
-  // El endpoint tiene cache de 90s internamente, así que no genera carga extra.
-  // Esto garantiza resultados frescos aunque el cron de GitHub Actions se saltee.
-  useEffect(()=>{
-    let alive=true;
-    const triggerSync=async()=>{
-      try{
-        const r=await fetch("/api/sync?client=1",{method:"POST"});
-        const d=await r.json();
-        if(alive && d.synced>0) refresh(); // solo hace re-fetch si hubo cambios nuevos
-      }catch{}
-    };
-    triggerSync();
-    const iv3=setInterval(triggerSync,300000); // cada 5 min
-    const onVis3=()=>{ if(!document.hidden) triggerSync(); };
-    document.addEventListener("visibilitychange",onVis3);
-    return ()=>{ alive=false; clearInterval(iv3); document.removeEventListener("visibilitychange",onVis3); };
-  },[refresh]);
-
   const flash=(m)=>{ setToast(m); setTimeout(()=>setToast(""),2600); };
   const isAdmin = me && config.adminUser===me;
 
@@ -645,7 +626,7 @@ function AppInner(){
         {tab==="board" && <BoardTab {...{users,allPicks,results,me,config,snap}}/>}
         {tab==="all"   && <AllPicksTab {...{users,allPicks,results,config,me,reactions,onReact:toggleReaction}}/>}
         {tab==="admin" && isAdmin && <AdminTab {...{config,setConfig,results,setResults,flash,refresh,users,allPicks,me}}/>}
-        {tab==="desafios" && <ChallengeSystem currentUser={me} allUsers={Object.keys(users)}/>}
+        {tab==="desafios" && <React.Suspense fallback={<div style={{textAlign:"center",padding:40,color:"#888",fontSize:15}}>Cargando desafíos...</div>}><ChallengeSystem currentUser={me} allUsers={Object.keys(users)}/></React.Suspense>}
       </div>
 
       {toast && <div className="disp" style={{ position:"fixed", bottom:18, left:"50%", transform:"translateX(-50%)", background:C.ink, color:"#fff", padding:"10px 18px", borderRadius:30, fontSize:16, boxShadow:"0 10px 30px rgba(0,0,0,.3)", zIndex:50 }}>{toast}</div>}
