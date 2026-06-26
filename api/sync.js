@@ -302,6 +302,7 @@ async function resolveAndSaveR32Bracket(grupos) {
 
   config.ko.R32.matchups = merged;
   config.ko.R32.open = true; // auto-habilita picks de 16avos
+  config.ko.R32.lock = "2026-06-28T15:45:00-03:00"; // 15 min antes del 1er partido (3PM ET = 4PM ARG)
 
   const { error } = await supabase.from("kv").upsert({ key: CONF_KEY, value: config });
   if (error) {
