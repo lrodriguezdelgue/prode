@@ -129,7 +129,7 @@ const GROUP_MATCHES = FIXTURE.map(([group,home,away,kickoff],i) => ({
 
 const KO_ORDER = ["R32","R16","QF","SF","TP","F"];
 const KO_DEFAULT = {
-  R32: { label:"16avos", lock:"2026-06-27T23:59:00-03:00", open:false, matchups:[] },
+  R32: { label:"16avos", lock:"2026-06-28T15:45:00-03:00", open:false, matchups:[] },
   R16: { label:"8vos",   lock:"2026-07-03T23:59:00-03:00", open:false, matchups:[] },
   QF:  { label:"Cuartos",lock:"2026-07-08T23:59:00-03:00", open:false, matchups:[] },
   SF:  { label:"Semis",  lock:"2026-07-13T23:59:00-03:00", open:false, matchups:[] },
