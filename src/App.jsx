@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { sget, sset, sdel, slist } from "./db.js";
-import ChallengeSystem from "./components/challenges/ChallengeSystem";
+const ChallengeSystem = React.lazy(() => import("./components/challenges/ChallengeSystem"));
 
 /* ============================================================
    LA SCALONETTA — Prode Mundial 2026
@@ -626,7 +626,7 @@ function AppInner(){
         {tab==="board" && <BoardTab {...{users,allPicks,results,me,config,snap}}/>}
         {tab==="all"   && <AllPicksTab {...{users,allPicks,results,config,me,reactions,onReact:toggleReaction}}/>}
         {tab==="admin" && isAdmin && <AdminTab {...{config,setConfig,results,setResults,flash,refresh,users,allPicks,me}}/>}
-        {tab==="desafios" && <ChallengeSystem currentUser={me} allUsers={Object.keys(users)}/>}
+        {tab==="desafios" && <React.Suspense fallback={<div style={{textAlign:"center",padding:40,color:"#888",fontSize:15}}>Cargando desafíos...</div>}><ChallengeSystem currentUser={me} allUsers={Object.keys(users)}/></React.Suspense>}
       </div>
 
       {toast && <div className="disp" style={{ position:"fixed", bottom:18, left:"50%", transform:"translateX(-50%)", background:C.ink, color:"#fff", padding:"10px 18px", borderRadius:30, fontSize:16, boxShadow:"0 10px 30px rgba(0,0,0,.3)", zIndex:50 }}>{toast}</div>}
