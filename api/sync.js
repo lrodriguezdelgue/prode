@@ -452,11 +452,13 @@ export default async function handler(req, res) {
   console.log(`Sync OK: ${synced} resultados (fuente: ${source})`);
 
   // ── AUTO-RESOLUCIÓN DEL BRACKET R32 ──────────────────────────────────────
-  // Se ejecuta en background sin bloquear la respuesta al cliente.
-  // No-fatal: si falla, el sync de resultados ya fue exitoso.
-  resolveAndSaveR32Bracket(merged.grupos).catch(e =>
-    console.error("resolveAndSaveR32Bracket error:", e.message)
-  );
+  // Se ejecuta ANTES de devolver la respuesta (fire-and-forget se mata en Vercel).
+  try {
+    await resolveAndSaveR32Bracket(merged.grupos);
+  } catch (e) {
+    console.error("resolveAndSaveR32Bracket error:", e.message);
+    // No-fatal: el sync de resultados ya fue exitoso
+  }
 
   return res.status(200).json({ synced, source, grupos });
 }
