@@ -150,10 +150,23 @@ function computeGroupStandings(grupos) {
 // Los 8 cruces que no involucran a un 3er puesto
 // Match 73: 2A vs 2B · 75: 1F vs 2C · 76: 1C vs 2F · 78: 2E vs 2I
 // Match 83: 2K vs 2L · 84: 1H vs 2J · 86: 1J vs 2H · 88: 2D vs 2G
-function resolvePureR32Matchups(standings) {
+
+// Índices de los partidos de la ÚLTIMA FECHA (jornada 3) de cada grupo.
+// Son los dos partidos simultáneos que definen el 1° y 2° final.
+// En cuanto ambos tengan resultado, el grupo está listo aunque openfootball
+// no haya sincronizado aún los partidos anteriores.
+const LAST_ROUND_IDS = {
+  A: ["A-4","A-5"], B: ["B-10","B-11"], C: ["C-16","C-17"], D: ["D-22","D-23"],
+  E: ["E-28","E-29"], F: ["F-34","F-35"], G: ["G-40","G-41"], H: ["H-46","H-47"],
+  I: ["I-52","I-53"], J: ["J-58","J-59"], K: ["K-64","K-65"], L: ["L-70","L-71"],
+};
+
+function resolvePureR32Matchups(standings, grupos) {
+  // Un grupo está listo si sus dos partidos de la última fecha ya tienen resultado.
+  // No exige gp===3 en todos los equipos (el sync puede llegar en cualquier orden).
   const complete = (g) => {
-    const s = standings[g];
-    return s && s.length === 4 && s.every(t => t.gp === 3);
+    const ids = LAST_ROUND_IDS[g];
+    return ids && ids.every(id => grupos[id]);
   };
   const p1 = (g) => standings[g]?.[0]?.name; // 1° puesto
   const p2 = (g) => standings[g]?.[1]?.name; // 2° puesto
@@ -253,7 +266,7 @@ async function resolveAndSaveR32Bracket(grupos) {
   const standings = computeGroupStandings(grupos);
 
   // 1. Cruces puros desde standings
-  const pureMatchups = resolvePureR32Matchups(standings);
+  const pureMatchups = resolvePureR32Matchups(standings, grupos);
 
   // 2. Cruces con 3ros desde football-data.org
   let thirdMatchups = [];
@@ -398,18 +411,33 @@ function parseFD(matches, lookup) {
 export default async function handler(req, res) {
   const fromCron   = req.headers["x-sync-secret"] === SYNC_SECRET;
   const fromClient = req.query?.client === "1";
-  if (!fromCron && !fromClient) {
+  const forceR32   = req.query?.force === "1"; // ?force=1 fuerza re-cómputo del bracket aunque ya exista
+  if (!fromCron && !fromClient && !forceR32) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
   // Cache breve para llamadas del front: si se llamó hace <90s, devolver datos actuales sin re-fetch
-  if (fromClient) {
+  // (salvo que sea force)
+  if (fromClient && !forceR32) {
     const KEY = "scalonetta:results";
     const { data: existing } = await supabase.from("kv").select("value").eq("key", KEY).single();
     const current = existing?.value || { grupos: {}, ko: {}, champion: null, bonus: {} };
     const lastSync = current._lastSync || 0;
     if (Date.now() - lastSync < 90_000) {
       return res.status(200).json({ synced: 0, source: "cache", cached: true });
+    }
+  }
+
+  // Modo force: solo re-cómputo del bracket R32 con los resultados actuales (no re-fetch de partidos)
+  if (forceR32) {
+    const KEY = "scalonetta:results";
+    const { data: existing } = await supabase.from("kv").select("value").eq("key", KEY).single();
+    const current = existing?.value || { grupos: {}, ko: {}, champion: null, bonus: {} };
+    try {
+      await resolveAndSaveR32Bracket(current.grupos);
+      return res.status(200).json({ ok: true, message: "Bracket R32 re-computado OK." });
+    } catch (e) {
+      return res.status(500).json({ error: "Error al re-computar bracket", details: e.message });
     }
   }
 
