@@ -1357,6 +1357,26 @@ function AdminTab({ config, setConfig, results, setResults, flash, refresh, user
       {secc==="cruces" && (
         <div style={{ background:"#fff", borderRadius:14, padding:14 }}>
           <p style={{fontSize:13,color:C.mute,marginTop:0}}>Cuando termina una fase y conocés los cruces, cargalos acá y tocá <b>Abrir</b>. Recién ahí los jugadores pueden pronosticar esa ronda.</p>
+
+          {/* Botón: forzar re-cómputo automático del bracket R32 */}
+          <div style={{ background:"#eaf4ff", borderRadius:10, padding:"12px 14px", marginBottom:14, border:`1px solid ${C.celeste}` }}>
+            <div style={{ fontWeight:800, fontSize:13, color:C.celesteDeep, marginBottom:4 }}>⚡ Auto-calcular cruces de 16avos</div>
+            <div style={{ fontSize:12, color:C.mute, marginBottom:10 }}>
+              Usa los resultados ya sincronizados para calcular los cruces R32 automáticamente.
+              Solo funciona si los grupos ya terminaron. Respeta los cruces que ya hayas cargado a mano.
+            </div>
+            <Btn kind="primary" disabled={busy} style={{padding:"8px 14px",fontSize:13}} onClick={async()=>{
+              setBusy(true);
+              try{
+                const r = await fetch("/api/sync?force=1&client=1");
+                const d = await r.json();
+                if(d.ok || d.message){ flash("Cruces R32 re-calculados ✓ Recargando…"); await refresh(); }
+                else flash("Error: "+(d.error||"desconocido"));
+              }catch(e){ flash("Error de red: "+e.message); }
+              setBusy(false);
+            }}>{busy?"Calculando…":"⚡ Calcular cruces R32 ahora"}</Btn>
+          </div>
+
           {KO_ORDER.map(ph=>(
             <KoEditor key={ph} ph={ph} f={config.ko[ph]}
               onChange={(mu,open)=>{const c={...config};c.ko={...c.ko,[ph]:{...c.ko[ph],matchups:mu,open}};saveConfig(c);}}/>
