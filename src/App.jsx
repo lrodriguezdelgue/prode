@@ -130,49 +130,61 @@ const GROUP_MATCHES = FIXTURE.map(([group,home,away,kickoff],i) => ({
 const KO_ORDER = ["R32","R16","QF","SF","TP","F"];
 
 // Fixture de eliminación con kickoffs reales (hora Argentina -03:00).
-// id matchea el mu.id que genera sync.js ("R32-73", "R32-75", etc.)
-// Usado para mostrar partidos en "Hoy" y para ordenar cronológicamente.
-const KO_FIXTURE = {
-  // 16avos (R32) — 28 jun al 1 jul
+// Doble índice: por ID oficial (R32-73) Y por equipos (para cruces cargados a mano con ID timestamp).
+const KO_FIXTURE_BY_ID = {
   "R32-73": "2026-06-28T16:00:00-03:00",
-  "R32-74": "2026-06-28T20:00:00-03:00",
-  "R32-75": "2026-06-29T16:00:00-03:00",
-  "R32-76": "2026-06-29T20:00:00-03:00",
-  "R32-77": "2026-06-30T12:00:00-03:00",
-  "R32-78": "2026-06-30T16:00:00-03:00",
-  "R32-79": "2026-06-30T20:00:00-03:00",
-  "R32-80": "2026-07-01T12:00:00-03:00",
-  "R32-81": "2026-07-01T16:00:00-03:00",
-  "R32-82": "2026-07-01T20:00:00-03:00",
-  "R32-83": "2026-07-02T12:00:00-03:00",
-  "R32-84": "2026-07-02T16:00:00-03:00",
-  "R32-85": "2026-07-02T20:00:00-03:00",
-  "R32-86": "2026-07-03T12:00:00-03:00",
-  "R32-87": "2026-07-03T16:00:00-03:00",
+  "R32-76": "2026-06-29T14:00:00-03:00",
+  "R32-74": "2026-06-29T17:30:00-03:00",
+  "R32-75": "2026-06-29T22:00:00-03:00",
+  "R32-78": "2026-06-30T14:00:00-03:00",
+  "R32-77": "2026-06-30T18:00:00-03:00",
+  "R32-79": "2026-06-30T22:00:00-03:00",
+  "R32-80": "2026-07-01T13:00:00-03:00",
+  "R32-82": "2026-07-01T17:00:00-03:00",
+  "R32-81": "2026-07-01T21:00:00-03:00",
+  "R32-84": "2026-07-02T21:00:00-03:00",
+  "R32-83": "2026-07-03T01:00:00-03:00",
+  "R32-85": "2026-07-03T05:00:00-03:00",
   "R32-88": "2026-07-03T20:00:00-03:00",
-  // Octavos (R16) — 4-7 jul
-  "R16-89": "2026-07-04T16:00:00-03:00",
-  "R16-90": "2026-07-04T20:00:00-03:00",
-  "R16-91": "2026-07-05T16:00:00-03:00",
-  "R16-92": "2026-07-05T20:00:00-03:00",
-  "R16-93": "2026-07-06T16:00:00-03:00",
-  "R16-94": "2026-07-06T20:00:00-03:00",
+  "R32-86": "2026-07-04T00:00:00-03:00",
+  "R32-87": "2026-07-04T03:30:00-03:00",
+  "R16-89": "2026-07-04T18:00:00-03:00",
+  "R16-90": "2026-07-04T22:00:00-03:00",
+  "R16-91": "2026-07-05T18:00:00-03:00",
+  "R16-92": "2026-07-05T22:00:00-03:00",
+  "R16-93": "2026-07-06T18:00:00-03:00",
+  "R16-94": "2026-07-06T22:00:00-03:00",
   "R16-95": "2026-07-07T16:00:00-03:00",
   "R16-96": "2026-07-07T20:00:00-03:00",
-  // Cuartos (QF) — 9-11 jul
-  "QF-97":  "2026-07-09T16:00:00-03:00",
-  "QF-98":  "2026-07-09T20:00:00-03:00",
-  "QF-99":  "2026-07-10T16:00:00-03:00",
-  "QF-100": "2026-07-10T20:00:00-03:00",
-  // Semis (SF) — 14-15 jul
-  "SF-101": "2026-07-14T20:00:00-03:00",
-  "SF-102": "2026-07-15T20:00:00-03:00",
-  // 3er puesto (TP)
-  "TP-103": "2026-07-18T16:00:00-03:00",
-  // Final (F)
-  "F-104":  "2026-07-19T16:00:00-03:00",
+  "QF-97":  "2026-07-09T17:00:00-03:00",
+  "QF-98":  "2026-07-09T21:00:00-03:00",
+  "QF-99":  "2026-07-10T17:00:00-03:00",
+  "QF-100": "2026-07-10T21:00:00-03:00",
+  "SF-101": "2026-07-14T21:00:00-03:00",
+  "SF-102": "2026-07-15T21:00:00-03:00",
+  "TP-103": "2026-07-18T17:00:00-03:00",
+  "F-104":  "2026-07-19T17:00:00-03:00",
 };
-
+// Fallback por equipos para cruces cargados a mano con ID timestamp
+const KO_FIXTURE_BY_TEAMS = {
+  "Sudáfrica|Canadá":"2026-06-28T16:00:00-03:00","Canadá|Sudáfrica":"2026-06-28T16:00:00-03:00",
+  "Brasil|Japón":"2026-06-29T14:00:00-03:00","Japón|Brasil":"2026-06-29T14:00:00-03:00",
+  "Alemania|Paraguay":"2026-06-29T17:30:00-03:00","Paraguay|Alemania":"2026-06-29T17:30:00-03:00",
+  "Países Bajos|Marruecos":"2026-06-29T22:00:00-03:00","Marruecos|Países Bajos":"2026-06-29T22:00:00-03:00",
+  "Costa de Marfil|Noruega":"2026-06-30T14:00:00-03:00","Noruega|Costa de Marfil":"2026-06-30T14:00:00-03:00",
+  "Francia|Suecia":"2026-06-30T18:00:00-03:00","Suecia|Francia":"2026-06-30T18:00:00-03:00",
+  "México|Ecuador":"2026-06-30T22:00:00-03:00","Ecuador|México":"2026-06-30T22:00:00-03:00",
+  "Inglaterra|R.D. Congo":"2026-07-01T13:00:00-03:00","R.D. Congo|Inglaterra":"2026-07-01T13:00:00-03:00",
+  "Bélgica|Senegal":"2026-07-01T17:00:00-03:00","Senegal|Bélgica":"2026-07-01T17:00:00-03:00",
+  "Estados Unidos|Bosnia y H.":"2026-07-01T21:00:00-03:00","Bosnia y H.|Estados Unidos":"2026-07-01T21:00:00-03:00",
+  "España|Austria":"2026-07-02T21:00:00-03:00","Austria|España":"2026-07-02T21:00:00-03:00",
+  "Portugal|Croacia":"2026-07-03T01:00:00-03:00","Croacia|Portugal":"2026-07-03T01:00:00-03:00",
+  "Suiza|Argelia":"2026-07-03T05:00:00-03:00","Argelia|Suiza":"2026-07-03T05:00:00-03:00",
+  "Australia|Egipto":"2026-07-03T20:00:00-03:00","Egipto|Australia":"2026-07-03T20:00:00-03:00",
+  "Argentina|Cabo Verde":"2026-07-04T00:00:00-03:00","Cabo Verde|Argentina":"2026-07-04T00:00:00-03:00",
+  "Colombia|Ghana":"2026-07-04T03:30:00-03:00","Ghana|Colombia":"2026-07-04T03:30:00-03:00",
+};
+function getKoKickoff(mu){ return KO_FIXTURE_BY_ID[mu.id] || KO_FIXTURE_BY_TEAMS[mu.teamA+"|"+mu.teamB] || ""; }
 const KO_DEFAULT = {
   R32: { label:"16avos", lock:"2026-06-28T15:45:00-03:00", open:false, matchups:[] },
   R16: { label:"8vos",   lock:"2026-07-03T23:59:00-03:00", open:false, matchups:[] },
@@ -1021,11 +1033,8 @@ function AllPicksTab({ users, allPicks, results, config, me, reactions, onReact 
 
       {view==="ko" && KO_ORDER.filter(ph=>config.ko[ph]?.open).map(ph=>{
         const f=config.ko[ph]; const koOpen=isPast(f.lock);
-        // Ordenar cruces cronológicamente según KO_FIXTURE
-        const matchups = (f.matchups||[]).slice().sort((a,b)=>{
-          const ka=KO_FIXTURE[a.id]||""; const kb=KO_FIXTURE[b.id]||"";
-          return Date.parse(ka)-Date.parse(kb);
-        });
+        // orden cronológico usando getKoKickoff (soporta IDs oficiales y timestamps)
+        const matchups = (f.matchups||[]).slice().sort((a,b)=>Date.parse(getKoKickoff(a)||"9")-Date.parse(getKoKickoff(b)||"9"));
         return (
           <div key={ph} className="scrollx" style={{ overflowX:"auto", marginBottom:14 }}>
             <div className="disp" style={{ fontSize:18, color:C.celesteDeep }}>{f.label}</div>
@@ -1037,13 +1046,11 @@ function AllPicksTab({ users, allPicks, results, config, me, reactions, onReact 
               <tbody>
                 {matchups.map(mu=>{
                   const res=results?.ko?.[ph]?.[mu.id];
-                  // % de picks (solo si la fase cerró)
                   let statTxt="";
                   if(koOpen){
                     const cA=ids.filter(uid=>allPicks[uid]?.ko?.[ph]?.[mu.id]===mu.teamA).length;
                     const cB=ids.filter(uid=>allPicks[uid]?.ko?.[ph]?.[mu.id]===mu.teamB).length;
-                    const tot=cA+cB;
-                    if(tot){ const pct=n=>Math.round(n/tot*100); statTxt=`${mu.teamA.slice(0,5)} ${pct(cA)}% · ${mu.teamB.slice(0,5)} ${pct(cB)}%`; }
+                    const tot=cA+cB; if(tot){ const pct=n=>Math.round(n/tot*100); statTxt=`${mu.teamA.slice(0,5)} ${pct(cA)}% · ${mu.teamB.slice(0,5)} ${pct(cB)}%`; }
                   }
                   return (
                     <tr key={mu.id}>
@@ -1112,21 +1119,19 @@ function liveProvisional(liveGames, results){
   }
   return { prov, provIds, liveGm: (liveGames||[]).map(g=>({g,f:findLiveGM(g)})).filter(x=>x.f) };
 }
-// partidos del FIXTURE cuyo kickoff cae HOY (hora ARG)
-// Todos los partidos (grupos + eliminación) con kickoff conocido, para "Hoy" y "Próximos"
+// Todos los partidos (grupos + KO con kickoff conocido) ordenados cronológicamente
 function allMatchesWithKickoff(config){
   const group = GROUP_MATCHES.map(m=>({ ...m, phase:"grupos" }));
   const ko = [];
   for(const ph of KO_ORDER){
     for(const mu of (config?.ko?.[ph]?.matchups||[])){
-      const kickoff = KO_FIXTURE[mu.id];
+      const kickoff = getKoKickoff(mu);
       if(kickoff) ko.push({ id:mu.id, phase:ph, home:mu.teamA, homeFlag:flagOf(mu.teamA), away:mu.teamB, awayFlag:flagOf(mu.teamB), kickoff });
     }
   }
   return [...group, ...ko].sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
 }
-
-// partidos del FIXTURE cuyo kickoff cae HOY (hora ARG)
+// partidos cuyo kickoff cae HOY (hora ARG)
 function matchesTodayARG(now, config){
   const today = argDateKey(now);
   return allMatchesWithKickoff(config).filter(m=>argDateKey(m.kickoff)===today);
@@ -1169,18 +1174,18 @@ function HoyTab({ users, allPicks, results, config, me, liveGames, now, flash })
   const realPos = {}; realRows.forEach((r,i)=>{ realPos[r.uid]=i+1; });
 
   const today = matchesTodayARG(now, config);
-  // withRes: resultados ya confirmados de hoy (grupos o KO)
+  // withRes: resultados confirmados hoy (grupos o KO)
   const withRes = today.filter(m=> m.phase==="grupos" ? results?.grupos?.[m.id] : results?.ko?.[m.phase]?.[m.id]);
   // ranking de la jornada (puntos sumados hoy)
   const jor = ids.map(uid=>{
     let p=0,h=0;
     for(const m of withRes){
       if(m.phase==="grupos"){
-        const pk=allPicks[uid]?.grupos?.[m.id]; const res=results?.grupos?.[m.id];
-        if(pk&&pk===res){ p+=PTS.grupo; h++; }
+        const pk=allPicks[uid]?.grupos?.[m.id]; const res2=results?.grupos?.[m.id];
+        if(pk&&pk===res2){ p+=PTS.grupo; h++; }
       } else {
-        const pk=allPicks[uid]?.ko?.[m.phase]?.[m.id]; const res=results?.ko?.[m.phase]?.[m.id];
-        if(pk&&pk===res){ p+=PTS.ko; h++; }
+        const pk=allPicks[uid]?.ko?.[m.phase]?.[m.id]; const res2=results?.ko?.[m.phase]?.[m.id];
+        if(pk&&pk===res2){ p+=PTS.ko; h++; }
       }
     }
     return { uid, name:users[uid].name||uid, p, h };
@@ -1252,21 +1257,19 @@ function HoyTab({ users, allPicks, results, config, me, liveGames, now, flash })
         ) : today.map(m=>{
           const isKo = m.phase !== "grupos";
           const res = isKo ? results?.ko?.[m.phase]?.[m.id] : results?.grupos?.[m.id];
-          const phaseLabel = isKo ? config.ko[m.phase]?.label : null;
-          const liveMatch = !isKo ? liveGm.find(({f})=>f.gm.id===m.id) : null;
+          const phLabel = isKo ? config.ko[m.phase]?.label : null;
           const phaseOpen = isKo ? isPast(config.ko[m.phase]?.lock) : gruposOpen;
-          // % de picks si la fase ya cerró
+          const liveMatch = !isKo ? liveGm.find(({f})=>f.gm.id===m.id) : null;
           let statTxt="";
           if(phaseOpen){
             if(isKo){
               const cA=ids.filter(uid=>allPicks[uid]?.ko?.[m.phase]?.[m.id]===m.home).length;
               const cB=ids.filter(uid=>allPicks[uid]?.ko?.[m.phase]?.[m.id]===m.away).length;
-              const tot=cA+cB;
-              if(tot){ const pct=(n)=>Math.round(n/tot*100); statTxt=`${m.home.slice(0,4)} ${pct(cA)}% · ${m.away.slice(0,4)} ${pct(cB)}%`; }
+              const tot=cA+cB; if(tot){ const pct=n=>Math.round(n/tot*100); statTxt=`${m.home.slice(0,5)} ${pct(cA)}% · ${m.away.slice(0,5)} ${pct(cB)}`+"%" ; }
             } else {
               const c={L:0,E:0,V:0}; let tot=0;
               for(const uid of ids){ const p=allPicks[uid]?.grupos?.[m.id]; if(p){c[p]++;tot++;} }
-              if(tot){ const pct=(n)=>Math.round(n/tot*100); statTxt=`${m.home.slice(0,3)} ${pct(c.L)}% · X ${pct(c.E)}% · ${m.away.slice(0,3)} ${pct(c.V)}%`; }
+              if(tot){ const pct=n=>Math.round(n/tot*100); statTxt=`${m.home.slice(0,3)} ${pct(c.L)}% · X ${pct(c.E)}% · ${m.away.slice(0,3)} ${pct(c.V)}%`; }
             }
           }
           const hits = res ? ids.filter(uid=> isKo ? allPicks[uid]?.ko?.[m.phase]?.[m.id]===res : allPicks[uid]?.grupos?.[m.id]===res).length : 0;
@@ -1274,11 +1277,11 @@ function HoyTab({ users, allPicks, results, config, me, liveGames, now, flash })
             <div key={m.id} style={{ padding:"9px 0", borderTop:`1px solid ${C.paper}` }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>
-                  {phaseLabel && <span style={{fontSize:10,fontWeight:800,color:C.mute,marginRight:6,textTransform:"uppercase"}}>{phaseLabel}</span>}
+                  {phLabel && <span style={{fontSize:10,fontWeight:800,color:C.mute,marginRight:5,textTransform:"uppercase"}}>{phLabel} · </span>}
                   {m.homeFlag} {m.home} <span style={{color:C.mute}}>vs</span> {m.awayFlag} {m.away}
                 </div>
                 {liveMatch ? <Pill bg="#E53935">{liveMatch.g.hs}–{liveMatch.g.as} 🔴</Pill>
-                  : res ? <Pill bg={C.good}>{isKo ? `Pasó ${res.slice(0,5)}` : res==="L"?`Ganó ${m.home.slice(0,3)}`:res==="V"?`Ganó ${m.away.slice(0,3)}`:"Empate"}</Pill>
+                  : res ? <Pill bg={C.good}>{isKo?`Pasó ${res.slice(0,6)}`:res==="L"?`Ganó ${m.home.slice(0,3)}`:res==="V"?`Ganó ${m.away.slice(0,3)}`:"Empate"}</Pill>
                   : <span style={{ fontSize:11, color:C.mute }}>{fmtKick(m.kickoff).replace(" hs (ARG)","")}</span>}
               </div>
               {statTxt && <div style={{ fontSize:11, color:C.mute, marginTop:3 }}>{statTxt}{res?` · ${hits} acertaron`:""}</div>}
